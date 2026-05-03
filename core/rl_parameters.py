@@ -6,10 +6,9 @@
 
 from __future__ import annotations
 
-from collections import deque
 from collections.abc import Callable
-from dataclasses import dataclass, field
-from typing import Any, Deque, Literal
+from dataclasses import dataclass
+from typing import Any, Literal
 
 import numpy as np
 from numpy.typing import NDArray
@@ -17,37 +16,29 @@ from numpy.typing import NDArray
 from core.env_base import Action, State
 
 
-PolicyKind = Literal["greedy", "epsilon_greedy", "softmax", "custom"]
+PolicyKind = Literal["greedy", "epsilon_greedy"]
+ValueFunctionKind = Literal["table", "linear"]
+FeatureKind = Literal["one_hot", "fourier"]
+WeightInitKind = Literal["zeros", "normal"]
 
 
 @dataclass(slots=True)
 class RLAlgorithmConfig:
-    """表格型 RL 算法的通用超参数。
-
-    字段覆盖 DP、MC、TD、SARSA、Q-learning、Expected SARSA、n-step、
-    eligibility trace、Dyna 等书中常见算法所需的主要参数。
-    未被当前算法使用的参数会保留在配置中，方便以后切换算法。
-    """
+    """当前书中算法可视化需要的最小通用参数。"""
 
     alpha: float = 0.2
     gamma: float = 0.9
     epsilon: float = 0.1
-    epsilon_min: float = 0.01
-    epsilon_decay: float = 1.0
-    temperature: float = 1.0
-    theta: float = 1e-6
-    lambda_: float = 0.0
-    n_step: int = 1
-    planning_steps: int = 0
-    max_iterations: int = 10_000
-    first_visit: bool = True
-    exploring_starts: bool = False
-    ordinary_importance_sampling: bool = True
     behavior_policy: PolicyKind = "epsilon_greedy"
-    target_policy: PolicyKind = "greedy"
     auto_refresh_policy: bool = True
     initial_policy: NDArray[np.float64] | None = None
     seed: int | None = 13
+    value_function: ValueFunctionKind = "table"
+    feature_kind: FeatureKind = "one_hot"
+    feature_order: int = 0
+    weight_init: WeightInitKind = "zeros"
+    weight_mean: float = 0.0
+    weight_std: float = 1.0
 
 
 @dataclass(slots=True)
@@ -72,6 +63,7 @@ class RLStepResult:
     variables: dict[str, Any]
     metrics: dict[str, float]
     updated_state: State
+    next_action: Action | None = None
 
 
 @dataclass(slots=True)
@@ -81,34 +73,43 @@ class RLTables:
     q: NDArray[np.float64]
     v: NDArray[np.float64]
     policy: NDArray[np.float64]
-    returns_sum: NDArray[np.float64]
-    returns_count: NDArray[np.float64]
-    eligibility: NDArray[np.float64]
-    visit_count: NDArray[np.float64]
-    model_next_state: NDArray[np.int_]
-    model_reward: NDArray[np.float64]
-    episode_buffer: Deque[RLTransition] = field(default_factory=deque)
+    w: NDArray[np.float64]
+    features: NDArray[np.float64]
 
     @classmethod
     def create(
         cls,
         num_states: int,
         num_actions: int,
+        config: RLAlgorithmConfig,
+        rng: np.random.Generator,
+        state_shape: tuple[int, int] | None = None,
         initial_policy: NDArray[np.float64] | None = None,
     ) -> "RLTables":
         q = np.zeros((num_states, num_actions), dtype=float)
         v = np.zeros(num_states, dtype=float)
         policy = _build_initial_policy(num_states, num_actions, initial_policy)
+        features = build_action_value_features(
+            num_states=num_states,
+            num_actions=num_actions,
+            feature_kind=config.feature_kind,
+            feature_order=config.feature_order,
+            state_shape=state_shape,
+        )
+        w = _build_initial_w(
+            feature_dim=features.shape[-1],
+            config=config,
+            rng=rng,
+        )
+        if config.value_function == "linear":
+            q = np.tensordot(features, w, axes=([2], [0]))
+            v = q.max(axis=1)
         return cls(
             q=q,
             v=v,
             policy=policy,
-            returns_sum=np.zeros((num_states, num_actions), dtype=float),
-            returns_count=np.zeros((num_states, num_actions), dtype=float),
-            eligibility=np.zeros((num_states, num_actions), dtype=float),
-            visit_count=np.zeros((num_states, num_actions), dtype=float),
-            model_next_state=np.full((num_states, num_actions), -1, dtype=int),
-            model_reward=np.zeros((num_states, num_actions), dtype=float),
+            w=w,
+            features=features,
         )
 
 
@@ -131,23 +132,30 @@ class RLAlgorithmContext:
             probs /= total
         return int(self.rng.choice(self.num_actions, p=probs))
 
+    def q_hat(self, state: State, action: Action) -> float:
+        if self.config.value_function == "linear":
+            return float(np.dot(self.tables.features[state, action], self.tables.w))
+        return float(self.tables.q[state, action])
+
+    def grad_q_hat(self, state: State, action: Action) -> NDArray[np.float64]:
+        return self.tables.features[state, action].copy()
+
+    def sync_q_from_w(self) -> None:
+        if self.config.value_function != "linear":
+            return
+        self.tables.q = np.tensordot(self.tables.features, self.tables.w, axes=([2], [0]))
+        self.tables.v = self.tables.q.max(axis=1)
+
     def refresh_policy_state(self, state: State) -> None:
         self.tables.policy[state] = make_policy_probs(
             q_values=self.tables.q[state],
             policy_kind=self.config.behavior_policy,
             epsilon=self.config.epsilon,
-            temperature=self.config.temperature,
         )
 
     def refresh_all_policies(self) -> None:
         for state in range(self.num_states):
             self.refresh_policy_state(state)
-
-    def decay_epsilon(self) -> None:
-        self.config.epsilon = max(
-            self.config.epsilon_min,
-            self.config.epsilon * self.config.epsilon_decay,
-        )
 
 
 CoreAlgorithm = Callable[[RLAlgorithmContext, RLTransition], RLStepResult]
@@ -157,20 +165,10 @@ def make_policy_probs(
     q_values: NDArray[np.float64],
     policy_kind: PolicyKind,
     epsilon: float,
-    temperature: float,
 ) -> NDArray[np.float64]:
     """根据 Q 值生成一行策略概率。"""
 
     num_actions = q_values.shape[0]
-
-    if policy_kind == "custom":
-        raise ValueError("custom policy 必须通过 config.initial_policy 提供。")
-
-    if policy_kind == "softmax":
-        scaled = q_values / max(temperature, 1e-8)
-        shifted = scaled - np.max(scaled)
-        exp_values = np.exp(shifted)
-        return exp_values / exp_values.sum()
 
     best_value = np.max(q_values)
     best_actions = np.flatnonzero(np.isclose(q_values, best_value))
@@ -205,3 +203,76 @@ def _build_initial_policy(
     if np.any(row_sums <= 0):
         raise ValueError("initial_policy 每一行概率和必须大于 0。")
     return policy / row_sums
+
+
+def build_action_value_features(
+    num_states: int,
+    num_actions: int,
+    feature_kind: FeatureKind,
+    feature_order: int,
+    state_shape: tuple[int, int] | None,
+) -> NDArray[np.float64]:
+    """Build phi(s,a) for action-value function approximation."""
+
+    if feature_kind == "one_hot":
+        features = np.zeros((num_states, num_actions, num_states * num_actions))
+        for state in range(num_states):
+            for action in range(num_actions):
+                features[state, action, state * num_actions + action] = 1.0
+        return features
+
+    if feature_kind != "fourier":
+        raise ValueError(f"未知 feature_kind: {feature_kind}")
+
+    if state_shape is None:
+        raise ValueError("fourier 特征需要提供 state_shape=(rows, cols)。")
+    if feature_order < 0:
+        raise ValueError("feature_order 必须大于等于 0。")
+
+    rows, cols = state_shape
+    coefficients = np.array(
+        [
+            (row_order, col_order)
+            for row_order in range(feature_order + 1)
+            for col_order in range(feature_order + 1)
+        ],
+        dtype=float,
+    )
+    state_feature_dim = coefficients.shape[0]
+    feature_dim = state_feature_dim * num_actions
+    features = np.zeros((num_states, num_actions, feature_dim), dtype=float)
+
+    row_denominator = max(1, rows - 1)
+    col_denominator = max(1, cols - 1)
+    for state in range(num_states):
+        row, col = divmod(state, cols)
+        normalized_location = np.array(
+            [
+                -1.0 + 2.0 * row / row_denominator,
+                -1.0 + 2.0 * col / col_denominator,
+            ],
+            dtype=float,
+        )
+        phi_s = np.cos(np.pi * coefficients @ normalized_location)
+        for action in range(num_actions):
+            start = action * state_feature_dim
+            stop = start + state_feature_dim
+            features[state, action, start:stop] = phi_s
+
+    return features
+
+
+def _build_initial_w(
+    feature_dim: int,
+    config: RLAlgorithmConfig,
+    rng: np.random.Generator,
+) -> NDArray[np.float64]:
+    if config.weight_init == "zeros":
+        return np.zeros(feature_dim, dtype=float)
+    if config.weight_init == "normal":
+        return rng.normal(
+            loc=config.weight_mean,
+            scale=config.weight_std,
+            size=feature_dim,
+        ).astype(float)
+    raise ValueError(f"未知 weight_init: {config.weight_init}")

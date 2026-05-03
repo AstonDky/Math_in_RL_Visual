@@ -2,7 +2,7 @@
 
 格子编码:
     0: 普通区域，白色。
-    1: 禁止区域，黄色，智能体不能进入。
+    1: 禁止区域，黄色，默认可进入但会得到 r_forbidden 惩罚。
     2: 目标区域，绿色，到达后 episode 结束。
 
 默认布局来自用户 prompt:
@@ -70,15 +70,19 @@ class GridWorld(EnvBase):
         self,
         layout: NDArray[np.int_] | None = None,
         start_state: State | None = None,
-        step_reward: float = -0.04,
-        hit_wall_reward: float = -1.0,
-        target_reward: float = 1.0,
+        r_boundary: float = -1.0,
+        r_forbidden: float = -1.0,
+        r_target: float = 1.0,
+        r_other: float = 0.0,
+        forbidden_blocks: bool = False,
     ) -> None:
         self.layout = np.array(layout if layout is not None else self.DEFAULT_LAYOUT)
         self.rows, self.cols = self.layout.shape
-        self.step_reward = step_reward
-        self.hit_wall_reward = hit_wall_reward
-        self.target_reward = target_reward
+        self.r_boundary = float(r_boundary)
+        self.r_forbidden = float(r_forbidden)
+        self.r_target = float(r_target)
+        self.r_other = float(r_other)
+        self.forbidden_blocks = forbidden_blocks
 
         self._normal_states = self._collect_states(CellType.NORMAL)
         self._target_states = self._collect_states(CellType.TARGET)
@@ -125,7 +129,7 @@ class GridWorld(EnvBase):
     def step(self, action: Action) -> StepResult:
         """执行一步状态转移。
 
-        如果动作会撞墙、越界或进入黄色禁止区域，则智能体保持原地。
+        如果动作越界则留在原地；禁止区域是否阻挡由 forbidden_blocks 控制。
         """
 
         state = self._current_state
@@ -157,17 +161,27 @@ class GridWorld(EnvBase):
         delta_row, delta_col = self._DELTAS[action_enum]
         candidate = (row + delta_row, col + delta_col)
 
-        blocked = not self._is_valid_position(candidate)
-        if blocked:
+        outside_boundary = not self._is_inside_grid(candidate)
+        entered_forbidden = False
+        blocked = outside_boundary
+        if outside_boundary:
             next_state = state
-            reward = self.hit_wall_reward
+            reward = self.r_boundary
         else:
-            next_state = self.pos_to_state(*candidate)
-            reward = (
-                self.target_reward
-                if self.cell_type(next_state) == CellType.TARGET
-                else self.step_reward
-            )
+            candidate_state = self.pos_to_state(*candidate)
+            entered_forbidden = self.cell_type(candidate_state) == CellType.FORBIDDEN
+            if entered_forbidden and self.forbidden_blocks:
+                blocked = True
+                next_state = state
+                reward = self.r_forbidden
+            else:
+                next_state = candidate_state
+                if entered_forbidden:
+                    reward = self.r_forbidden
+                elif self.cell_type(next_state) == CellType.TARGET:
+                    reward = self.r_target
+                else:
+                    reward = self.r_other
 
         done = self.cell_type(next_state) == CellType.TARGET
 
@@ -179,6 +193,8 @@ class GridWorld(EnvBase):
                 "position": self.state_to_pos(state),
                 "next_position": self.state_to_pos(next_state),
                 "blocked": blocked,
+                "outside_boundary": outside_boundary,
+                "entered_forbidden": entered_forbidden,
                 "action_name": ACTION_NAMES[action_enum],
             },
         )
@@ -186,13 +202,13 @@ class GridWorld(EnvBase):
     def reward_map(self) -> NDArray[np.float64]:
         """返回每个状态格子的即时奖励，用于 Figure 4.4(b) 风格显示。"""
 
-        rewards = np.full(self.num_states, self.step_reward, dtype=float)
+        rewards = np.full(self.num_states, self.r_other, dtype=float)
         for state in range(self.num_states):
             cell = self.cell_type(state)
             if cell == CellType.FORBIDDEN:
-                rewards[state] = self.hit_wall_reward
+                rewards[state] = self.r_forbidden
             elif cell == CellType.TARGET:
-                rewards[state] = self.target_reward
+                rewards[state] = self.r_target
         return rewards
 
     def state_to_pos(self, state: State) -> tuple[int, int]:
@@ -219,9 +235,6 @@ class GridWorld(EnvBase):
                     states.append(self.pos_to_state(row, col))
         return states
 
-    def _is_valid_position(self, position: tuple[int, int]) -> bool:
+    def _is_inside_grid(self, position: tuple[int, int]) -> bool:
         row, col = position
-        inside = 0 <= row < self.rows and 0 <= col < self.cols
-        if not inside:
-            return False
-        return self.layout[row, col] != CellType.FORBIDDEN
+        return 0 <= row < self.rows and 0 <= col < self.cols

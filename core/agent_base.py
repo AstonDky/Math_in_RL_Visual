@@ -54,6 +54,7 @@ class InfoDict(TypedDict):
     value_table: NotRequired[NDArray[np.float64]]
     reward_map: NotRequired[NDArray[np.float64]]
     algorithm_trace: NotRequired[dict[str, Any]]
+    algorithm_name: NotRequired[str]
 
 
 class AgentBase(ABC):

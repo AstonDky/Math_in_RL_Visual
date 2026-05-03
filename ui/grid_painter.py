@@ -26,12 +26,7 @@ class GridPainter(QWidget):
         self.reward_map = reward_map
         self.update()
 
-    def update_view(
-        self,
-        policy_probs: NDArray[np.float64],
-        current_state: int,
-    ) -> None:
-        _ = policy_probs
+    def update_view(self, current_state: int) -> None:
         self.current_state = current_state
         self.update()
 

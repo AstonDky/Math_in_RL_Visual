@@ -154,7 +154,6 @@ class MainWindow(QMainWindow):
     def _on_info_ready(self, info: dict) -> None:
         current_state = int(info.get("next_state", self.env.current_state))
         self.grid_painter.update_view(
-            policy_probs=info["policy_probs"],
             current_state=current_state,
         )
         self.monitor_panel.update_info(info)

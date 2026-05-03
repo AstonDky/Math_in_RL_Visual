@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 from numpy.typing import NDArray
 from PyQt6.QtCore import QPointF, QRectF, Qt
-from PyQt6.QtGui import QColor, QPainter, QPen
+from PyQt6.QtGui import QColor, QFont, QPainter, QPen
 from PyQt6.QtWidgets import QWidget
 
 from envs.grid_world import CellType, GridAction
@@ -21,7 +21,7 @@ class PolicyPainter(QWidget):
         self.policy_probs: NDArray[np.float64] | None = None
         self.current_state: int | None = None
         self.updated_state: int | None = None
-        self.setMinimumSize(220, 220)
+        self.setMinimumSize(260, 260)
 
     def update_policy(
         self,
@@ -100,17 +100,13 @@ class PolicyPainter(QWidget):
         if self.policy_probs is None:
             return
 
-        probs = np.asarray(self.policy_probs[state], dtype=float)
-        total = float(np.sum(probs))
-        if total <= 0.0:
+        probabilities = self._normalized_probabilities(state)
+        if probabilities is None:
             return
 
-        normalized = probs / total
         center = rect.center()
-        unit_length = min(rect.width(), rect.height()) * 0.32
-        pen = QPen(QColor("#4b7f23"), max(1.0, rect.width() * 0.018))
-        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-        painter.setPen(pen)
+        cell_size = min(rect.width(), rect.height())
+        unit_length = cell_size * 0.36
 
         directions = {
             GridAction.UP: QPointF(0, -1),
@@ -119,17 +115,108 @@ class PolicyPainter(QWidget):
             GridAction.LEFT: QPointF(-1, 0),
         }
 
+        guide_pen = QPen(QColor("#d0d7de"), max(1.0, cell_size * 0.01))
+        guide_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(guide_pen)
+        for direction in directions.values():
+            guide_end = QPointF(
+                center.x() + direction.x() * unit_length,
+                center.y() + direction.y() * unit_length,
+            )
+            painter.drawLine(center, guide_end)
+
+        prob_pen = QPen(QColor("#4b7f23"), max(1.4, cell_size * 0.024))
+        prob_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(prob_pen)
         for action, direction in directions.items():
-            probability = float(normalized[int(action)])
+            probability = float(probabilities[int(action)])
             end = QPointF(
                 center.x() + direction.x() * unit_length * probability,
                 center.y() + direction.y() * unit_length * probability,
             )
             painter.drawLine(center, end)
+            self._draw_endpoint(painter, end, probability, cell_size)
+
+        if cell_size >= 52:
+            self._draw_probability_numbers(
+                painter=painter,
+                center=center,
+                unit_length=unit_length,
+                probabilities=probabilities,
+                directions=directions,
+                cell_size=cell_size,
+            )
 
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QColor("#4b7f23"))
-        painter.drawEllipse(center, 1.8, 1.8)
+        center_radius = max(1.6, cell_size * 0.025)
+        painter.drawEllipse(center, center_radius, center_radius)
+
+    def _normalized_probabilities(
+        self,
+        state: int,
+    ) -> NDArray[np.float64] | None:
+        if self.policy_probs is None:
+            return None
+
+        probs = np.asarray(self.policy_probs[state], dtype=float)
+        probs = np.nan_to_num(probs, nan=0.0, posinf=0.0, neginf=0.0)
+        probs = np.clip(probs, 0.0, None)
+        total = float(np.sum(probs))
+        if total <= 0.0:
+            return None
+        return probs / total
+
+    def _draw_endpoint(
+        self,
+        painter: QPainter,
+        end: QPointF,
+        probability: float,
+        cell_size: float,
+    ) -> None:
+        if probability <= 0.0:
+            return
+
+        radius = max(1.2, cell_size * (0.012 + 0.018 * probability))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor("#4b7f23"))
+        painter.drawEllipse(end, radius, radius)
+        prob_pen = QPen(QColor("#4b7f23"), max(1.4, cell_size * 0.024))
+        prob_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(prob_pen)
+
+    def _draw_probability_numbers(
+        self,
+        painter: QPainter,
+        center: QPointF,
+        unit_length: float,
+        probabilities: NDArray[np.float64],
+        directions: dict[GridAction, QPointF],
+        cell_size: float,
+    ) -> None:
+        font = QFont()
+        font.setPointSize(max(6, int(cell_size * 0.11)))
+        painter.setFont(font)
+        painter.setPen(QColor("#315f1f"))
+
+        label_size = max(14.0, cell_size * 0.22)
+        for action, direction in directions.items():
+            probability = float(probabilities[int(action)])
+            label_center = QPointF(
+                center.x() + direction.x() * (unit_length + label_size * 0.32),
+                center.y() + direction.y() * (unit_length + label_size * 0.32),
+            )
+            label_rect = QRectF(
+                label_center.x() - label_size / 2,
+                label_center.y() - label_size / 2,
+                label_size,
+                label_size,
+            )
+            painter.drawText(
+                label_rect,
+                Qt.AlignmentFlag.AlignCenter,
+                f"{probability:.2f}",
+            )
 
     def _draw_current_outline(self, painter: QPainter, rect: QRectF) -> None:
         painter.setBrush(Qt.BrushStyle.NoBrush)

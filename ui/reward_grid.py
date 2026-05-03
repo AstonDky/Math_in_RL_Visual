@@ -89,7 +89,9 @@ class RewardGrid(QWidget):
             painter.setPen(QPen(QColor("#c62828"), 3))
             painter.drawRect(rect.adjusted(2, 2, -2, -2))
 
-        if self.value_map is None:
+        if cell_type == CellType.TARGET:
+            text = "V=0.00"
+        elif self.value_map is None:
             text = "V=?"
         else:
             text = f"V={self.value_map[state]:.2f}"

@@ -7,8 +7,9 @@
 ## 目录职责
 
 - `main.py`: 主入口和算法热插拔选择区。
-- `algorithms/`: 只放核心算法函数，例如 `q_learning_step()`、`sarsa_step()`。
-- `core/rl_parameters.py`: 统一参数包，覆盖 DP、MC、TD、SARSA、Q-learning、n-step、eligibility trace、Dyna 等常见表格算法参数。
+- `algorithms/`: 只放书中/用户笔记风格的纯算法函数，例如 `sarsa_fa()`。
+- `core/algorithm_adapters.py`: 把纯算法函数适配成框架可逐步可视化的更新协议。
+- `core/rl_parameters.py`: 当前算法所需的最小参数、状态表、特征和策略概率工具。
 - `core/table_agent.py`: 通用表格 Agent 适配器，把核心算法函数接入训练和 UI。
 - `core/engine.py`: PyQt6 `QThread` 训练循环、暂停/继续、checkpoint 保存。
 - `envs/grid_world.py`: 手写 5x5 GridWorld。
@@ -19,24 +20,23 @@
 
 ## 切换算法
 
-通常只改 `main.py` 顶部的三行：
+当前只保留 Algorithm 8.2 的最小链路。算法本体写在 `algorithms/`：
 
 ```python
-from algorithms.greedy_q_learning import q_learning_step
-
-ALGORITHM_NAME = "greedy_q_learning"
-CORE_ALGORITHM = q_learning_step
-ALGORITHM_CONFIG = RLAlgorithmConfig(alpha=0.2, gamma=0.9, epsilon=0.1)
-```
-
-新增算法时，在 `algorithms/` 中写一个函数：
-
-```python
-def my_algorithm_step(ctx: RLAlgorithmContext, transition: RLTransition) -> RLStepResult:
+def sarsa_fa(w, s0, pi, q_hat, grad_q_hat, step, ...):
     ...
+    return w
 ```
 
-框架会自动解析这个函数源码，并在 UI 的算法指针框中逐行高亮。
+`main.py` 只选择算法函数、适配器和参数：
+
+```python
+ALGORITHM_NAME = "sarsa_value_function_8_2"
+CORE_ALGORITHM = adapt_sarsa_fa(sarsa_fa)
+ALGORITHM_CONFIG = RLAlgorithmConfig(alpha=0.001, gamma=0.9, epsilon=0.1)
+```
+
+框架会自动解析纯算法函数源码，并在 UI 的算法指针框中逐行高亮。
 
 ## 会话
 

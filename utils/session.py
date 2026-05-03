@@ -63,8 +63,18 @@ class TrainingSessionManager:
         agent.reset_training_state()
         if self.checkpoint_path.exists():
             self.checkpoint_path.unlink()
-        if self.log_dir.exists():
-            shutil.rmtree(self.log_dir)
+        self.clear_logs()
         self.session_dir.mkdir(parents=True, exist_ok=True)
         return 0, 0
+
+    def clear_logs(self) -> None:
+        """清空当前算法 TensorBoard 数据。"""
+
+        tensorboard_log = self.log_dir.parent / f"{self.log_dir.name}_tensorboard.log"
+        if tensorboard_log.exists():
+            tensorboard_log.unlink()
+
+        if self.log_dir.exists():
+            shutil.rmtree(self.log_dir)
+        self.log_dir.mkdir(parents=True, exist_ok=True)
 
