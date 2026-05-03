@@ -21,10 +21,11 @@ def build_algorithm_trace(
 ) -> dict[str, Any]:
     """解析核心算法函数，生成 UI 可消费的 trace 字典。"""
 
-    lines = extract_core_lines(core_function)
+    display_function = getattr(core_function, "__wrapped__", core_function)
+    lines = extract_core_lines(display_function)
     return {
-        "title": title or core_function.__name__,
-        "function_name": core_function.__name__,
+        "title": title or display_function.__name__,
+        "function_name": display_function.__name__,
         "lines": lines,
         "current_line": len(lines),
     }

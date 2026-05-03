@@ -6,14 +6,49 @@
 
 ## 用户正向要求汇总
 
-- `algorithms/` 文件夹只存用户写好的核心强化学习算法，尽量对应书中伪代码的几行核心计算。
+- `algorithms/` 文件夹只存用户写好的核心强化学习算法，尽量对应书中伪代码/用户笔记中的数学过程。
+- 用户希望最终写算法时可以采用书中风格的纯函数，而不是框架私有协议。例如 Algorithm 8.2 应允许写成：
+
+```python
+import numpy as np
+
+def sarsa_fa(w, s0, pi, q_hat, grad_q_hat, step,
+             alpha=0.01, gamma=0.9, episodes=500, max_steps=100):
+    for _ in range(episodes):
+        s = s0
+        a = pi(s, w)
+
+        for _ in range(max_steps):
+            s_next, r, done = step(s, a)
+
+            if done:
+                delta = r - q_hat(s, a, w)
+                w = w + alpha * delta * grad_q_hat(s, a, w)
+                break
+
+            a_next = pi(s_next, w)
+
+            delta = r + gamma * q_hat(s_next, a_next, w) - q_hat(s, a, w)
+            w = w + alpha * delta * grad_q_hat(s, a, w)
+
+            s = s_next
+            a = a_next
+
+    return w
+```
+
+- 框架必须负责把上述纯算法函数适配成可实时训练、可视化、可保存、可写 TensorBoard 的过程；不能要求用户在 `algorithms/` 里手写 UI 字段、`InfoDict`、TensorBoard 指标或框架状态对象。
+- 对于 `sarsa_fa` 这类整段训练函数，框架适配器应提供 `pi`、`q_hat`、`grad_q_hat`、`step` 等参数，并把算法内部每次权重更新转换成标准 `InfoDict`，从而驱动公式区、策略图、值函数图、算法指针和指标记录。
 - 主函数中只通过更改算法函数和参数配置来切换算法；训练过程自动调用所选核心算法。
-- 框架层必须提供算法所需的通用参数包，至少覆盖书中常见算法：DP、MC、TD、SARSA、Q-learning、Expected SARSA、n-step、eligibility trace、Dyna 等表格 RL 参数。
+- `main.py` 的算法选择区应尽量表达为“选择书中算法函数 + 框架适配器 + 参数配置”，例如 `CORE_ALGORITHM = adapt_sarsa_fa(sarsa_fa)`。长期目标是进一步简化为用户只选 `sarsa_fa` 和参数，框架自动识别/适配。
+- 框架层参数应保持当前算法所需的最小集合。当前阶段优先覆盖 Algorithm 8.2 需要的 `alpha/gamma/epsilon`、策略类型、函数近似类型、特征阶数、权重初始化和随机种子；其他算法参数等用户明确切换到相应算法时再增加。
 - UI、训练引擎、TensorBoard、保存恢复逻辑都不应该读取算法私有变量；所有显示数据通过标准 `InfoDict` 或框架适配器生成。
 - GridWorld 必须是纯手写环境，不依赖 Gym。
 - 主训练框显示最纯的环境 Grid，可显示设定 reward 数值，不要把策略线画在主训练框中。
 - 策略概率必须实时从算法返回的完整 `policy_probs` 读取，不能假设初始均等，也不能缓存错误旧值。
-- 策略概率图使用每个格子中心的小十字绿线显示：四个方向分别代表动作概率，统一单位长度归一化，不能糊住格子。
+- 策略概率图使用每个格子中心的小十字/箭头绿线显示：四个方向分别代表动作概率，统一单位长度归一化，不能糊住格子。
+- 策略图中某方向概率增大时，该方向线段/箭头必须增长；其他方向概率相应缩减时，线段/箭头必须同步变短。UI 必须实时显示 `policy_probs` 的归一化概率，而不是只显示 argmax 方向或缓存旧策略。
+- 概率图应尽量接近书中/MATLAB 图示：用箭头而不是普通线段表达动作方向，箭头长度正比于动作概率；如果动作空间包含 stay/still 动作，则在格子中心画圆圈表示“停留”概率。
 - 当前运行状态、更新状态只用边框高亮，不改变策略线本身。
 - 右侧值网格显示训练后的最优状态值 `V(s)=max_a Q(s,a)`，实时更新。
 - 公式区显示当前更新公式、变量和具体数值计算过程。
@@ -28,18 +63,33 @@
 
 ## 当前架构约定
 
-- `algorithms/*.py`: 只写核心算法函数，签名为 `fn(ctx, transition) -> RLStepResult`。
-- `core/rl_parameters.py`: 保存通用参数、表格状态、transition 和算法函数协议。
-- `core/table_agent.py`: 把核心算法函数包装成可训练、可视化、可保存的 Agent。
+- `algorithms/*.py`: 优先只写书中/用户笔记风格的核心算法纯函数，不写 UI、训练引擎、TensorBoard、checkpoint、Qt 代码。
+- `algorithms/sarsa_value_function.py`: Algorithm 8.2 的纯函数实现，当前目标签名为 `sarsa_fa(w, s0, pi, q_hat, grad_q_hat, step, alpha, gamma, episodes, max_steps) -> w`。
+- `core/algorithm_adapters.py`: 负责把书中纯函数适配到框架训练协议。例如 `adapt_sarsa_fa(sarsa_fa)` 会提供 `pi/q_hat/grad_q_hat/step`，运行单次可视化更新，并生成 `RLStepResult`。
+- `core/rl_parameters.py`: 保存当前算法所需的最小参数、表格/线性函数近似状态、transition 和算法函数协议；不要提前堆叠未使用算法的参数字段。
+- `core/table_agent.py`: 把适配后的核心算法函数包装成可训练、可视化、可保存的 Agent；它可以生成标准 `InfoDict`，但不能把 UI 逻辑写进算法本体。
 - `core/algorithm_trace.py`: 自动解析核心算法函数源码，供 UI 指针显示。
+- `core/engine.py`: 只负责训练循环、速度控制、暂停/继续、定期保存和向 UI 发标准信息；不要把算法细节写进 engine。
+- `envs/grid_world.py`: 纯手写 GridWorld 环境，只提供状态转移、奖励和布局，不依赖 Gym。
+- `ui/`: 只消费标准 `InfoDict`，负责主环境框、策略概率图、值函数图、公式区和算法指针显示。
 - `utils/session.py`: 管理 checkpoint、日志清理、重新运行和继续上次。
+- `utils/logger.py`: 只负责 TensorBoard 标量写入，不复刻 UI 图表。
 - `main.py`: 算法选择区只改 `ALGORITHM_NAME`、`CORE_ALGORITHM`、`ALGORITHM_CONFIG`。
+- `runs/`、`sessions/`、`__pycache__/`、`.vendor/`、临时日志和外部 PDF 副本都是运行/缓存/临时产物，不属于代码结构；除非用户明确要保留结果，否则不要把它们当成需要维护的源码内容。
 
 ## 开发注意
 
+- 每次根据用户新要求修改代码或框架时，必须同步把相关要求补充/更新到本 `AGENTS.md`，保持项目约束与最新用户意图一致。
+- 代码应保持最小可用结构：删除无效、测试、临时、过度兜底和未使用的代码；不要保留为了调试一时添加的目录、依赖兜底、旧算法样例或未接入 UI 的组件。
+- 使用 agent 开发时应尽量避免冗余和“屎山”：优先做最小、直接、可验证的改动；少写不必要的抽象、兜底、兼容层和长篇样板；保证 coding 消耗尽量少 token。
+- 对当前阶段，优先围绕 Algorithm 8.2 的书中纯函数实现和可视化链路优化；其他算法只有在用户明确要求测试时再新增。
+- 删除或清理文件时必须保护用户数据：只清理明确属于当前项目的运行产物、缓存或旧测试文件；不要删除用户桌面原始 PDF 或项目外文件。
+- 新增依赖应优先写入 `requirements.txt`，不要用项目内 `.vendor/` 目录作为长期解决方案。
 - 不要把 UI 逻辑写进 `algorithms/`。
+- 不要把 `RLAlgorithmContext`、`RLTransition`、`RLStepResult` 这类框架协议强加到用户算法文件中；需要时通过 `core/algorithm_adapters.py` 适配。
 - 不要让 UI 读取算法私有变量。
 - 不要把策略概率画到主训练环境框里。
 - 改算法时优先新增/修改 `algorithms/` 中的核心函数。
+- 如果算法是整段 episode/training-loop 风格，优先新增/修改 `core/algorithm_adapters.py` 中的适配器，而不是污染算法本体。
 - 改参数时优先修改 `main.py` 的 `ALGORITHM_CONFIG`。
 - 提交前至少运行 `python -m compileall -q .` 和一个无 UI 的算法 smoke test。

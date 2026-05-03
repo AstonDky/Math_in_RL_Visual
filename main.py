@@ -15,8 +15,9 @@ from pathlib import Path
 
 from PyQt6.QtWidgets import QApplication
 
-from algorithms.greedy_q_learning import q_learning_step
+from algorithms.sarsa_value_function import sarsa_fa
 from core.agent_base import AgentBase
+from core.algorithm_adapters import adapt_sarsa_fa
 from core.engine import TrainingEngine
 from core.rl_parameters import RLAlgorithmConfig
 from core.table_agent import TableAgent
@@ -27,16 +28,19 @@ from utils.logger import TensorBoardLogger
 from utils.session import TrainingSessionManager
 
 
-ALGORITHM_NAME = "greedy_q_learning"
-CORE_ALGORITHM = q_learning_step
+ALGORITHM_NAME = "sarsa_value_function_8_2"
+CORE_ALGORITHM = adapt_sarsa_fa(sarsa_fa)
+STARTUP_MODE = "restart"  # "restart" 清空旧数据；"continue" 恢复 checkpoint。
 ALGORITHM_CONFIG = RLAlgorithmConfig(
-    alpha=0.2,
+    alpha=0.001,
     gamma=0.9,
     epsilon=0.1,
-    epsilon_min=0.01,
-    epsilon_decay=1.0,
     behavior_policy="epsilon_greedy",
-    target_policy="greedy",
+    auto_refresh_policy=False,
+    value_function="linear",
+    feature_kind="fourier",
+    feature_order=5,
+    weight_init="normal",
 )
 
 
@@ -50,15 +54,21 @@ def build_agent(env: GridWorld) -> AgentBase:
         algorithm=CORE_ALGORITHM,
         config=ALGORITHM_CONFIG,
         algorithm_name=ALGORITHM_NAME,
+        state_shape=env.layout.shape,
     )
 
 
 def start_tensorboard(log_dir: Path, port: int = 6006) -> subprocess.Popen | None:
-    """随应用启动 TensorBoard；未安装时不阻塞主界面。"""
+    """随应用启动当前算法的 TensorBoard 页面。"""
 
     if find_spec("tensorboard") is None:
         return None
 
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = (log_dir.parent / f"{log_dir.name}_tensorboard.log").open(
+        "w",
+        encoding="utf-8",
+    )
     command = [
         sys.executable,
         "-m",
@@ -70,15 +80,7 @@ def start_tensorboard(log_dir: Path, port: int = 6006) -> subprocess.Popen | Non
         "--reload_interval",
         "2",
     ]
-    try:
-        process = subprocess.Popen(
-            command,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-    except OSError:
-        return None
-
+    process = subprocess.Popen(command, stdout=log_file, stderr=subprocess.STDOUT)
     webbrowser.open(f"http://localhost:{port}")
     return process
 
@@ -86,24 +88,40 @@ def start_tensorboard(log_dir: Path, port: int = 6006) -> subprocess.Popen | Non
 def main() -> int:
     app = QApplication(sys.argv)
 
-    tensorboard_process = start_tensorboard(Path("runs"))
-
-    env = GridWorld(step_reward=-0.04, hit_wall_reward=-1.0, target_reward=1.0)
+    env = GridWorld(
+        r_boundary=-10.0,
+        r_forbidden=-10.0,
+        r_target=1.0,
+        r_other=0.0,
+        forbidden_blocks=False,
+    )
     agent = build_agent(env)
     session_manager = TrainingSessionManager(ALGORITHM_NAME)
+    startup_status, progress = prepare_startup_session(
+        mode=STARTUP_MODE,
+        session_manager=session_manager,
+        agent=agent,
+    )
     logger = TensorBoardLogger(log_dir=session_manager.log_dir)
+    tensorboard_process = start_tensorboard(session_manager.log_dir)
     engine = TrainingEngine(
         env=env,
         agent=agent,
         logger=logger,
         session_manager=session_manager,
     )
+    engine.set_progress(*progress)
     hardware = detect_hardware()
 
     window = MainWindow(env=env, engine=engine)
     window.show()
+    tensorboard_status = (
+        "TensorBoard: http://localhost:6006"
+        if tensorboard_process is not None
+        else "TensorBoard 未启动，请检查依赖"
+    )
     window.statusBar().showMessage(
-        f"{hardware.backend} | {hardware.note} | TensorBoard: http://localhost:6006"
+        f"{hardware.backend} | {hardware.note} | {startup_status} | {tensorboard_status}"
     )
 
     exit_code = app.exec()
@@ -111,6 +129,22 @@ def main() -> int:
         tensorboard_process.terminate()
     engine.set_logger(None)
     return exit_code
+
+
+def prepare_startup_session(
+    mode: str,
+    session_manager: TrainingSessionManager,
+    agent: AgentBase,
+) -> tuple[str, tuple[int, int]]:
+    """程序启动时明确选择新训练或继续上次，避免 TensorBoard 混入旧数据。"""
+
+    if mode == "continue":
+        loaded = session_manager.load(agent)
+        if loaded is not None:
+            return f"继续上次: step={loaded[0]}", loaded
+
+    step, episode = session_manager.reset_run(agent)
+    return "新训练: 已清理 checkpoint 和 TensorBoard 日志", (step, episode)
 
 
 if __name__ == "__main__":

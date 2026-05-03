@@ -57,12 +57,12 @@ class MonitorPanel(QWidget):
 
         tensorboard_box = QGroupBox("TensorBoard")
         tensorboard_layout = QVBoxLayout(tensorboard_box)
-        tensorboard_note = QLabel(
-            "训练指标已拆分写入 runs/greedy_q_learning：\n"
+        self.tensorboard_note = QLabel(
+            "训练指标已拆分写入 runs/<algorithm_name>：\n"
             "rollout/reward, train/loss, train/td_error, train/q_value"
         )
-        tensorboard_note.setWordWrap(True)
-        tensorboard_layout.addWidget(tensorboard_note)
+        self.tensorboard_note.setWordWrap(True)
+        tensorboard_layout.addWidget(self.tensorboard_note)
 
         layout = QVBoxLayout(self)
         layout.addLayout(top)
@@ -96,6 +96,15 @@ class MonitorPanel(QWidget):
         trace = info.get("algorithm_trace")
         if trace is not None:
             self.algorithm_pointer.update_trace(trace)
+
+        algorithm_name = info.get("algorithm_name")
+        if algorithm_name:
+            self.tensorboard_note.setText(
+                f"训练指标已拆分写入 runs/{algorithm_name}：\n"
+                "rollout/reward, rollout/episode_reward, "
+                "rollout/episode_length, train/loss, "
+                "train/td_error, train/q_value"
+            )
 
     def clear(self) -> None:
         self.formula_label.setText("-")

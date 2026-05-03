@@ -29,9 +29,10 @@ class TrainingEngine(QThread):
         agent: AgentBase,
         logger: TensorBoardLogger | None = None,
         session_manager: TrainingSessionManager | None = None,
-        delay_ms: float = 300.0,
+        delay_ms: float = 0.0,
         max_steps_per_episode: int = 200,
-        save_interval_steps: int = 25,
+        save_interval_steps: int = 500,
+        fast_ui_interval_steps: int = 50,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -42,6 +43,7 @@ class TrainingEngine(QThread):
         self.delay_ms = delay_ms
         self.max_steps_per_episode = max_steps_per_episode
         self.save_interval_steps = save_interval_steps
+        self.fast_ui_interval_steps = max(1, fast_ui_interval_steps)
 
         self._mutex = QMutex()
         self._running = False
@@ -85,10 +87,24 @@ class TrainingEngine(QThread):
             if self.logger is not None:
                 self.logger.log_metrics(info["metrics"], self._step)
 
-            self._emit_trace_sequence(info)
+            should_emit_info = (
+                self._delay_ms() > 0.0
+                or self._step % self.fast_ui_interval_steps == 0
+                or transition.done
+            )
+            if should_emit_info:
+                self._emit_trace_sequence(info)
             self._step += 1
 
             if transition.done or episode_steps >= self.max_steps_per_episode:
+                if self.logger is not None:
+                    self.logger.log_metrics(
+                        {
+                            "rollout/episode_reward": float(episode_reward),
+                            "rollout/episode_length": float(episode_steps),
+                        },
+                        self._episode,
+                    )
                 self.episode_finished.emit(self._episode, episode_reward)
                 self._episode += 1
                 self.save_checkpoint()
@@ -213,14 +229,23 @@ class TrainingEngine(QThread):
         """
 
         trace = info.get("algorithm_trace")
+        delay_ms = self._delay_ms()
         if not trace:
             self.info_ready.emit(dict(info))
-            self._sleep_delay(self._delay_ms())
+            self._sleep_delay(delay_ms)
             return
 
         lines = trace.get("lines", [])
         stage_count = max(1, len(lines))
-        delay_ms = self._delay_ms()
+        if delay_ms <= 0.0:
+            staged = dict(info)
+            staged_trace = dict(trace)
+            staged_trace["current_line"] = stage_count
+            staged["algorithm_trace"] = staged_trace
+            staged["metric_step"] = info.get("step", 0)
+            self.info_ready.emit(staged)
+            return
+
         stage_delay = 0.0 if delay_ms <= 0.0 else delay_ms / stage_count
 
         for line_number in range(1, stage_count + 1):

@@ -4,7 +4,6 @@
 QThread、TensorBoard 或训练会话管理代码。
 """
 
-from algorithms.greedy_q_learning import q_learning_step
-from algorithms.sarsa import sarsa_step
+from algorithms.sarsa_value_function import sarsa_fa
 
-__all__ = ["q_learning_step", "sarsa_step"]
+__all__ = ["sarsa_fa"]
