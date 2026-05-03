@@ -15,22 +15,41 @@ from pathlib import Path
 
 from PyQt6.QtWidgets import QApplication
 
-from algorithms.on_policy_q_learning_agent import GreedyQLearningAgent
+from algorithms.greedy_q_learning import q_learning_step
 from core.agent_base import AgentBase
 from core.engine import TrainingEngine
+from core.rl_parameters import RLAlgorithmConfig
+from core.table_agent import TableAgent
 from envs.grid_world import GridWorld
 from ui.main_window import MainWindow
 from utils.hardware import detect_hardware
 from utils.logger import TensorBoardLogger
+from utils.session import TrainingSessionManager
+
+
+ALGORITHM_NAME = "greedy_q_learning"
+CORE_ALGORITHM = q_learning_step
+ALGORITHM_CONFIG = RLAlgorithmConfig(
+    alpha=0.2,
+    gamma=0.9,
+    epsilon=0.1,
+    epsilon_min=0.01,
+    epsilon_decay=1.0,
+    behavior_policy="epsilon_greedy",
+    target_policy="greedy",
+)
 
 
 def build_agent(env: GridWorld) -> AgentBase:
-    """算法热插拔入口：当前使用 greedy Q-learning。"""
+    """算法热插拔入口：只改上面的 CORE_ALGORITHM 和 ALGORITHM_CONFIG。"""
 
-    return GreedyQLearningAgent(
+    return TableAgent(
         num_states=env.num_states,
         num_actions=env.num_actions,
         reward_map=env.reward_map(),
+        algorithm=CORE_ALGORITHM,
+        config=ALGORITHM_CONFIG,
+        algorithm_name=ALGORITHM_NAME,
     )
 
 
@@ -67,13 +86,18 @@ def start_tensorboard(log_dir: Path, port: int = 6006) -> subprocess.Popen | Non
 def main() -> int:
     app = QApplication(sys.argv)
 
-    log_dir = Path("runs/greedy_q_learning")
     tensorboard_process = start_tensorboard(Path("runs"))
 
-    env = GridWorld()
+    env = GridWorld(step_reward=-0.04, hit_wall_reward=-1.0, target_reward=1.0)
     agent = build_agent(env)
-    logger = TensorBoardLogger(log_dir=log_dir)
-    engine = TrainingEngine(env=env, agent=agent, logger=logger)
+    session_manager = TrainingSessionManager(ALGORITHM_NAME)
+    logger = TensorBoardLogger(log_dir=session_manager.log_dir)
+    engine = TrainingEngine(
+        env=env,
+        agent=agent,
+        logger=logger,
+        session_manager=session_manager,
+    )
     hardware = detect_hardware()
 
     window = MainWindow(env=env, engine=engine)
@@ -85,7 +109,7 @@ def main() -> int:
     exit_code = app.exec()
     if tensorboard_process is not None:
         tensorboard_process.terminate()
-    logger.close()
+    engine.set_logger(None)
     return exit_code
 
 

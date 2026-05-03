@@ -40,6 +40,8 @@ class MainWindow(QMainWindow):
         self.play_button = QPushButton("开始")
         self.pause_button = QPushButton("暂停")
         self.stop_button = QPushButton("停止")
+        self.restart_button = QPushButton("重新运行")
+        self.continue_button = QPushButton("继续上次")
         self.play_button.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay)
         )
@@ -68,6 +70,8 @@ class MainWindow(QMainWindow):
         controls.addWidget(self.play_button)
         controls.addWidget(self.pause_button)
         controls.addWidget(self.stop_button)
+        controls.addWidget(self.restart_button)
+        controls.addWidget(self.continue_button)
         controls.addSpacing(20)
         controls.addWidget(self.speed_label)
         controls.addWidget(self.speed_slider, stretch=1)
@@ -96,6 +100,8 @@ class MainWindow(QMainWindow):
         self.play_button.clicked.connect(self._start_or_resume)
         self.pause_button.clicked.connect(self.engine.pause)
         self.stop_button.clicked.connect(self.engine.stop)
+        self.restart_button.clicked.connect(self._restart_run)
+        self.continue_button.clicked.connect(self._continue_run)
         self.speed_slider.valueChanged.connect(self._on_speed_changed)
 
         self.engine.info_ready.connect(self._on_info_ready)
@@ -107,6 +113,15 @@ class MainWindow(QMainWindow):
             self.engine.start()
         else:
             self.engine.resume()
+
+    def _restart_run(self) -> None:
+        self.engine.restart_session()
+        self._clear_training_views()
+
+    def _continue_run(self) -> None:
+        loaded = self.engine.continue_session()
+        if loaded:
+            self._clear_training_views()
 
     def _on_speed_changed(self, value: int) -> None:
         delay_ms = self._slider_to_delay(value)
@@ -155,3 +170,10 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(
             f"episode {episode} finished, reward={reward:.2f}"
         )
+
+    def _clear_training_views(self) -> None:
+        state = self.env.reset()
+        self.grid_painter.set_current_state(state)
+        self.monitor_panel.clear()
+        self.step_label.setText("step: -")
+        self.state_label.setText("state: -")

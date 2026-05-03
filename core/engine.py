@@ -6,6 +6,8 @@ PyQt6 的 UI 线程必须保持轻量，否则窗口会卡顿。
 
 from __future__ import annotations
 
+import gc
+
 from PyQt6.QtCore import QMutex, QMutexLocker, QThread, pyqtSignal
 
 from core.agent_base import AgentBase, InfoDict
@@ -118,6 +120,44 @@ class TrainingEngine(QThread):
             self._running = False
         self.wait(1000)
         self.save_checkpoint()
+
+    def restart_session(self) -> None:
+        """重新运行：清空旧训练状态、旧 checkpoint 和旧日志。"""
+
+        if self.isRunning():
+            self.stop()
+        if self.logger is not None:
+            self.logger.close()
+            self.logger = None
+        if self.session_manager is not None:
+            step, episode = self.session_manager.reset_run(self.agent)
+            self.set_progress(step, episode)
+            self.logger = TensorBoardLogger(log_dir=self.session_manager.log_dir)
+        else:
+            self.agent.reset_training_state()
+            self.set_progress(0, 0)
+        self.env.reset()
+        gc.collect()
+        self.status_changed.emit("restarted")
+
+    def continue_session(self) -> bool:
+        """继续上一次运行：加载 checkpoint。"""
+
+        if self.isRunning():
+            self.stop()
+        if self.session_manager is None:
+            self.status_changed.emit("no session manager")
+            return False
+        loaded = self.session_manager.load(self.agent)
+        if loaded is None:
+            self.status_changed.emit("no checkpoint found")
+            return False
+        self.set_progress(*loaded)
+        self.set_logger(TensorBoardLogger(log_dir=self.session_manager.log_dir))
+        self.env.reset()
+        gc.collect()
+        self.status_changed.emit(f"loaded checkpoint: step={loaded[0]}")
+        return True
 
     def set_progress(self, step: int, episode: int) -> None:
         with QMutexLocker(self._mutex):

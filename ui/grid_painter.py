@@ -35,6 +35,10 @@ class GridPainter(QWidget):
         self.current_state = current_state
         self.update()
 
+    def set_current_state(self, current_state: int) -> None:
+        self.current_state = current_state
+        self.update()
+
     def paintEvent(self, event) -> None:
         _ = event
         painter = QPainter(self)
