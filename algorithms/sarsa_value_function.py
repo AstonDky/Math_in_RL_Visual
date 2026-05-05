@@ -1,8 +1,10 @@
-"""Algorithm 8.2: Sarsa with function approximation.
+"""Algorithm 8.2: epsilon-greedy Sarsa with function approximation.
 
-This file intentionally contains only the book-style algorithm function. The
-framework supplies ``pi``, ``q_hat``, ``grad_q_hat`` and ``step`` through an
-adapter, then records the intermediate update for UI/TensorBoard.
+This file intentionally contains only the book-style algorithm function.
+The framework may provide ``pi``, ``q_hat``, ``grad_q_hat`` and ``step``
+through an adapter, but the control rule itself still belongs to the
+algorithm: ``pi`` is expected to sample from the epsilon-greedy policy
+induced by the current weights ``w``.
 """
 
 from __future__ import annotations
@@ -19,12 +21,13 @@ def sarsa_fa(
     step,
     alpha: float = 0.01,
     gamma: float = 0.9,
+    epsilon: float = 0.1,
     episodes: int = 500,
     max_steps: int = 100,
 ) -> np.ndarray:
     for _ in range(episodes):
         s = s0
-        a = pi(s, w)
+        a = pi(s, w, epsilon)
 
         for _ in range(max_steps):
             s_next, r, done = step(s, a)
@@ -34,11 +37,14 @@ def sarsa_fa(
                 w = w + alpha * delta * grad_q_hat(s, a, w)
                 break
 
-            a_next = pi(s_next, w)
+            a_next = pi(s_next, w, epsilon)
 
             delta = r + gamma * q_hat(s_next, a_next, w) - q_hat(s, a, w)
             w = w + alpha * delta * grad_q_hat(s, a, w)
 
+            # Algorithm 8.2 improves the behavior policy after the weight update.
+            # Here that is represented by future ``pi(state, w, epsilon)`` calls
+            # using the updated ``w``.
             s = s_next
             a = a_next
 

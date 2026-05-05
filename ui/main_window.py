@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-import math
-
-from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
+    QDoubleSpinBox,
     QHBoxLayout,
     QLabel,
     QMainWindow,
     QPushButton,
-    QSlider,
     QStatusBar,
     QStyle,
     QVBoxLayout,
@@ -60,10 +57,14 @@ class MainWindow(QMainWindow):
         )
         self.step_label = QLabel("step: -")
         self.state_label = QLabel("state: -")
-        self.speed_slider = QSlider(Qt.Orientation.Horizontal)
-        self.speed_slider.setRange(0, 1000)
-        self.speed_slider.setValue(self._delay_to_slider(engine.delay_ms))
-        self.speed_label = QLabel(self._speed_text(engine.delay_ms))
+        self.interval_label = QLabel("间隔 (ms)")
+        self.interval_input = QDoubleSpinBox()
+        self.interval_input.setDecimals(3)
+        self.interval_input.setRange(0.0, 1000.0)
+        self.interval_input.setSingleStep(1.0)
+        self.interval_input.setSuffix(" ms")
+        self.interval_input.setValue(engine.delay_ms)
+        self.interval_input.setKeyboardTracking(False)
 
         self._build_layout()
         self._connect_signals()
@@ -82,8 +83,8 @@ class MainWindow(QMainWindow):
         controls.addWidget(self.restart_button)
         controls.addWidget(self.continue_button)
         controls.addSpacing(20)
-        controls.addWidget(self.speed_label)
-        controls.addWidget(self.speed_slider, stretch=1)
+        controls.addWidget(self.interval_label)
+        controls.addWidget(self.interval_input)
 
         left_layout = QVBoxLayout()
         left_layout.addLayout(controls)
@@ -111,7 +112,7 @@ class MainWindow(QMainWindow):
         self.stop_button.clicked.connect(self.engine.stop)
         self.restart_button.clicked.connect(self._restart_run)
         self.continue_button.clicked.connect(self._continue_run)
-        self.speed_slider.valueChanged.connect(self._on_speed_changed)
+        self.interval_input.valueChanged.connect(self._on_interval_changed)
 
         self.engine.info_ready.connect(self._on_info_ready)
         self.engine.status_changed.connect(self.statusBar().showMessage)
@@ -134,33 +135,8 @@ class MainWindow(QMainWindow):
         if loaded:
             self._clear_training_views()
 
-    def _on_speed_changed(self, value: int) -> None:
-        delay_ms = self._slider_to_delay(value)
-        self.engine.set_delay(delay_ms)
-        self.speed_label.setText(self._speed_text(delay_ms))
-
-    def _slider_to_delay(self, value: int) -> float:
-        """把线性滑块映射成对数延迟。
-
-        value=0 表示不 sleep；value>0 时最小约 0.001 ms，并逐渐增至 1000 ms。
-        因此滑块左端能表达“无限接近 0”的训练间隔。
-        """
-
-        if value <= 0:
-            return 0.0
-        return 10 ** (-3.0 + 6.0 * value / 1000.0)
-
-    def _delay_to_slider(self, delay_ms: float) -> int:
-        if delay_ms <= 0.0:
-            return 0
-        return max(1, min(1000, round((math.log10(delay_ms) + 3.0) / 6.0 * 1000)))
-
-    def _speed_text(self, value: float) -> str:
-        if value <= 0.0:
-            return "速度间隔: 0 ms (正常运行速度)"
-        if value < 1.0:
-            return f"速度间隔: {value:.4f} ms"
-        return f"速度间隔: {value:.1f} ms"
+    def _on_interval_changed(self, value: float) -> None:
+        self.engine.set_delay(float(value))
 
     def _on_info_ready(self, info: dict) -> None:
         current_state = int(info.get("next_state", self.env.current_state))

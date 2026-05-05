@@ -32,7 +32,7 @@ class TrainingEngine(QThread):
         delay_ms: float = 0.0,
         max_steps_per_episode: int = 200,
         save_interval_steps: int = 500,
-        fast_ui_interval_steps: int = 1,
+        fast_ui_interval_steps: int = 16,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -87,10 +87,10 @@ class TrainingEngine(QThread):
             if self.logger is not None:
                 self.logger.log_metrics(info["metrics"], self._step)
 
+            delay_ms = self._delay_ms()
             should_emit_info = (
-                self._delay_ms() > 0.0
-                or self._step % self.fast_ui_interval_steps == 0
-                or transition.done
+                transition.done
+                or self._should_emit_info(delay_ms)
             )
             if should_emit_info:
                 self._emit_trace_sequence(info)
@@ -220,6 +220,18 @@ class TrainingEngine(QThread):
             self.usleep(max(1, int(delay_ms * 1000)))
         else:
             self.msleep(int(delay_ms))
+
+    def _should_emit_info(self, delay_ms: float) -> bool:
+        """Throttle UI refresh in high-speed mode so controls stay responsive.
+
+        Training should continue at full speed even when delay is near zero, but
+        the UI thread must not be flooded with every single step; otherwise the
+        speed slider and buttons appear to stop responding.
+        """
+
+        if delay_ms >= 1.0:
+            return True
+        return self._step % self.fast_ui_interval_steps == 0
 
     def _emit_trace_sequence(self, info: InfoDict) -> None:
         """把一次算法更新拆成多次 UI 指针事件。

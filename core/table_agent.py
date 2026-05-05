@@ -127,6 +127,16 @@ class TableAgent(AgentBase):
         self.validate_info(info)
         return info
 
+    def reset(self) -> None:
+        """清空 episode 级临时动作缓存。
+
+        对 SARSA 这类 on-policy 算法，上一时刻采样出的 ``a_next`` 只属于
+        当前 episode；进入新 episode 后必须丢弃，不能把旧动作带到新的起点。
+        """
+
+        self._next_action = None
+        self._next_action_state = None
+
     def reset_training_state(self) -> None:
         self.config = copy.deepcopy(self._initial_config)
         self._rng = np.random.default_rng(self.config.seed)

@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import inspect
+from collections.abc import Callable
+from typing import Any
+
 import numpy as np
 
 from core.env_base import Action, State
 from core.rl_parameters import (
+    CoreAlgorithm,
     RLAlgorithmContext,
     RLStepResult,
     RLTransition,
@@ -13,13 +18,51 @@ from core.rl_parameters import (
 )
 
 
-def adapt_sarsa_fa(book_algorithm):
-    """Wrap ``sarsa_fa(w, s0, pi, q_hat, grad_q_hat, step, ...)``.
+BookAlgorithm = Callable[..., Any]
+_SARSA_FA_REQUIRED_PARAMS = ("w", "s0", "pi", "q_hat", "grad_q_hat", "step")
+_SARSA_FA_SUPPORTED_OPTIONAL_PARAMS = {
+    "alpha",
+    "gamma",
+    "epsilon",
+    "episodes",
+    "max_steps",
+}
+
+
+def adapt_algorithm(book_algorithm: BookAlgorithm) -> CoreAlgorithm:
+    """Automatically choose a framework adapter for a book-style algorithm.
+
+    The framework itself should stay stable while users swap algorithms in
+    ``algorithms/``. Selection is therefore driven by the core function's
+    signature instead of by hand-written wiring in ``main.py``.
+    """
+
+    if _matches_sarsa_fa_signature(book_algorithm):
+        return adapt_sarsa_fa(book_algorithm)
+
+    signature = inspect.signature(book_algorithm)
+    raise ValueError(
+        "No framework adapter matches algorithm "
+        f"{book_algorithm.__name__}{signature}. "
+        "Add a new signature matcher in core/algorithm_adapters.py instead of "
+        "changing engine/UI/session code."
+    )
+
+
+def adapt_sarsa_fa(book_algorithm: BookAlgorithm) -> CoreAlgorithm:
+    """Wrap a Sarsa-style function-approximation control algorithm.
 
     The engine already owns environment stepping so it can animate the GridWorld.
     This adapter therefore replays the current transition as the algorithm's
     ``step`` function and runs the book algorithm for exactly one update.
+
+    This family covers pure functions whose signature follows the book-style
+    shape ``(w, s0, pi, q_hat, grad_q_hat, step, ...)``. The framework injects
+    those callables, captures one visualizable update, and leaves the training
+    engine/UI/session layers unchanged.
     """
+
+    parameter_names = tuple(inspect.signature(book_algorithm).parameters)
 
     def core_algorithm(
         ctx: RLAlgorithmContext,
@@ -29,17 +72,24 @@ def adapt_sarsa_fa(book_algorithm):
         first_action_used = False
         sampled_next_action: Action | None = None
 
-        def pi(state: State, w: np.ndarray) -> Action:
+        def pi(
+            state: State,
+            w: np.ndarray,
+            epsilon: float | None = None,
+        ) -> Action:
             nonlocal first_action_used, sampled_next_action
             if not first_action_used and state == transition.state:
                 first_action_used = True
                 return transition.action
 
+            effective_epsilon = (
+                ctx.config.epsilon if epsilon is None else float(epsilon)
+            )
             q_values = _q_values_from_w(ctx, state, w)
             probs = make_policy_probs(
                 q_values,
                 ctx.config.behavior_policy,
-                ctx.config.epsilon,
+                effective_epsilon,
                 ctx.config.softmax_temperature,
             )
             action = int(ctx.rng.choice(ctx.num_actions, p=probs))
@@ -58,6 +108,7 @@ def adapt_sarsa_fa(book_algorithm):
             return transition.next_state, transition.reward, transition.done
 
         q_hat_t = q_hat(transition.state, transition.action, w_t)
+        call_kwargs = _build_supported_kwargs(ctx, parameter_names)
         w_next = book_algorithm(
             w_t,
             transition.state,
@@ -65,10 +116,7 @@ def adapt_sarsa_fa(book_algorithm):
             q_hat,
             grad_q_hat,
             step,
-            ctx.config.alpha,
-            ctx.config.gamma,
-            1,
-            1,
+            **call_kwargs,
         )
         q_hat_t_plus_1 = (
             0.0
@@ -109,6 +157,7 @@ def adapt_sarsa_fa(book_algorithm):
                 "q_hat_next": round(float(q_hat_t_plus_1), 3),
                 "delta": round(float(td_error), 3),
                 "w_norm": round(float(np.linalg.norm(ctx.tables.w)), 3),
+                "epsilon": round(float(ctx.config.epsilon), 3),
                 "pi(a|s)": np.round(pi_t_plus_1, 3).tolist(),
                 "V_pi(s)": round(float(state_value_after), 3),
             },
@@ -128,6 +177,40 @@ def adapt_sarsa_fa(book_algorithm):
     core_algorithm.__doc__ = book_algorithm.__doc__
     core_algorithm.__wrapped__ = book_algorithm
     return core_algorithm
+
+
+def _matches_sarsa_fa_signature(book_algorithm: BookAlgorithm) -> bool:
+    signature = inspect.signature(book_algorithm)
+    parameters = signature.parameters
+    names = tuple(parameters)
+    if names[: len(_SARSA_FA_REQUIRED_PARAMS)] != _SARSA_FA_REQUIRED_PARAMS:
+        return False
+
+    for name, parameter in list(parameters.items())[len(_SARSA_FA_REQUIRED_PARAMS) :]:
+        if (
+            name not in _SARSA_FA_SUPPORTED_OPTIONAL_PARAMS
+            and parameter.default is inspect.Signature.empty
+        ):
+            return False
+    return True
+
+
+def _build_supported_kwargs(
+    ctx: RLAlgorithmContext,
+    parameter_names: tuple[str, ...],
+) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {}
+    if "alpha" in parameter_names:
+        kwargs["alpha"] = ctx.config.alpha
+    if "gamma" in parameter_names:
+        kwargs["gamma"] = ctx.config.gamma
+    if "epsilon" in parameter_names:
+        kwargs["epsilon"] = ctx.config.epsilon
+    if "episodes" in parameter_names:
+        kwargs["episodes"] = 1
+    if "max_steps" in parameter_names:
+        kwargs["max_steps"] = 1
+    return kwargs
 
 
 def _q_values_from_w(
