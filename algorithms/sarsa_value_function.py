@@ -1,10 +1,8 @@
-"""Algorithm 8.2: epsilon-greedy Sarsa with function approximation.
+"""Algorithm 8.2: Sarsa with linear action-value approximation.
 
-This file intentionally contains only the book-style algorithm function.
-The framework may provide ``pi``, ``q_hat``, ``grad_q_hat`` and ``step``
-through an adapter, but the control rule itself still belongs to the
-algorithm: ``pi`` is expected to sample from the epsilon-greedy policy
-induced by the current weights ``w``.
+The function keeps the book-style training loop. The framework supplies
+``pi``, ``q_hat``, ``grad_q_hat`` and ``step`` when it runs the algorithm
+inside the visual trainer.
 """
 
 from __future__ import annotations
@@ -42,9 +40,6 @@ def sarsa_fa(
             delta = r + gamma * q_hat(s_next, a_next, w) - q_hat(s, a, w)
             w = w + alpha * delta * grad_q_hat(s, a, w)
 
-            # Algorithm 8.2 improves the behavior policy after the weight update.
-            # Here that is represented by future ``pi(state, w, epsilon)`` calls
-            # using the updated ``w``.
             s = s_next
             a = a_next
 

@@ -1,4 +1,4 @@
-"""Adapters that connect book-style algorithms to the visual framework."""
+"""书中风格算法函数的框架适配层。"""
 
 from __future__ import annotations
 
@@ -30,12 +30,7 @@ _SARSA_FA_SUPPORTED_OPTIONAL_PARAMS = {
 
 
 def adapt_algorithm(book_algorithm: BookAlgorithm) -> CoreAlgorithm:
-    """Automatically choose a framework adapter for a book-style algorithm.
-
-    The framework itself should stay stable while users swap algorithms in
-    ``algorithms/``. Selection is therefore driven by the core function's
-    signature instead of by hand-written wiring in ``main.py``.
-    """
+    """按函数签名选择适配器。"""
 
     if _matches_sarsa_fa_signature(book_algorithm):
         return adapt_sarsa_fa(book_algorithm)
@@ -50,16 +45,10 @@ def adapt_algorithm(book_algorithm: BookAlgorithm) -> CoreAlgorithm:
 
 
 def adapt_sarsa_fa(book_algorithm: BookAlgorithm) -> CoreAlgorithm:
-    """Wrap a Sarsa-style function-approximation control algorithm.
+    """适配 ``sarsa_fa(w, s0, pi, q_hat, grad_q_hat, step, ...)`` 族函数。
 
-    The engine already owns environment stepping so it can animate the GridWorld.
-    This adapter therefore replays the current transition as the algorithm's
-    ``step`` function and runs the book algorithm for exactly one update.
-
-    This family covers pure functions whose signature follows the book-style
-    shape ``(w, s0, pi, q_hat, grad_q_hat, step, ...)``. The framework injects
-    those callables, captures one visualizable update, and leaves the training
-    engine/UI/session layers unchanged.
+    适配器把当前 transition 包装成算法看到的 ``step``，并运行一次可展示的
+    权重更新。环境推进、UI 数据和 checkpoint 仍由框架层处理。
     """
 
     parameter_names = tuple(inspect.signature(book_algorithm).parameters)

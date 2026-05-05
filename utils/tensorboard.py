@@ -1,4 +1,4 @@
-"""TensorBoard process launcher with ready-before-open behavior."""
+"""TensorBoard 启动器。"""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import threading
 import time
 import webbrowser
 from importlib.util import find_spec
+from os import getpid
 from pathlib import Path
 from typing import Callable
 from urllib.error import URLError
@@ -19,18 +20,20 @@ StatusCallback = Callable[[str], None]
 
 
 class TensorBoardLauncher:
-    """Start TensorBoard lazily and open it only after the HTTP server is ready."""
+    """启动 TensorBoard，并在服务就绪后打开页面。"""
 
     def __init__(
         self,
         log_dir: str | Path,
         preferred_port: int = 6006,
         open_timeout_seconds: float = 20.0,
+        reload_interval_seconds: float = 1.0,
         status_callback: StatusCallback | None = None,
     ) -> None:
         self.log_dir = Path(log_dir)
         self.preferred_port = int(preferred_port)
         self.open_timeout_seconds = float(open_timeout_seconds)
+        self.reload_interval_seconds = max(0.5, float(reload_interval_seconds))
         self.status_callback = status_callback
         self.process: subprocess.Popen | None = None
         self.port: int | None = None
@@ -54,7 +57,10 @@ class TensorBoardLauncher:
             self._emit(f"TensorBoard 启动失败: {error}")
             return False
         self.url = f"http://localhost:{self.port}"
-        log_path = self.log_dir.parent / f"{self.log_dir.name}_tensorboard.log"
+        log_path = (
+            self.log_dir.parent
+            / f"{self.log_dir.name}_tensorboard_{getpid()}_{int(time.time())}.log"
+        )
         self._log_file = log_path.open("w", encoding="utf-8")
         command = [
             sys.executable,
@@ -65,7 +71,7 @@ class TensorBoardLauncher:
             "--port",
             str(self.port),
             "--reload_interval",
-            "2",
+            f"{self.reload_interval_seconds:g}",
         ]
         try:
             self.process = subprocess.Popen(

@@ -1,9 +1,4 @@
-"""核心算法函数源码解析器。
-
-算法类只需要把真正的更新逻辑放进一个独立函数，然后调用
-``build_algorithm_trace``。UI 就能自动显示该函数的代码行，而不需要
-手写伪代码列表。
-"""
+"""核心算法函数源码解析器。"""
 
 from __future__ import annotations
 
@@ -32,12 +27,7 @@ def build_algorithm_trace(
 
 
 def extract_core_lines(core_function: Callable[..., Any]) -> list[str]:
-    """提取函数体中真正的代码行。
-
-    - 自动去掉 ``def ...`` 这一行。
-    - 自动去掉函数 docstring。
-    - 保留函数体内的缩进层次，方便 UI 像代码框一样展示。
-    """
+    """提取可在算法指针中展示的函数体代码。"""
 
     source = textwrap.dedent(inspect.getsource(core_function))
     source_lines = source.splitlines()

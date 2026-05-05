@@ -1,10 +1,6 @@
 """训练会话管理。
 
-负责把“重新运行”和“继续上一次运行”从 UI/算法中解耦出来：
-
-- 重新运行：清理 checkpoint、TensorBoard 日志和算法内存状态。
-- 继续运行：加载上次保存的算法参数与 step/episode 计数。
-- 训练中：周期性保存，避免关闭窗口后丢失结果。
+这里负责 checkpoint、TensorBoard 日志目录和训练进度计数。
 """
 
 from __future__ import annotations
@@ -58,7 +54,7 @@ class TrainingSessionManager:
         return int(payload.get("step", 0)), int(payload.get("episode", 0))
 
     def reset_run(self, agent: AgentBase) -> tuple[int, int]:
-        """清理旧训练数据，并重置算法内存状态。"""
+        """重置当前算法的训练数据。"""
 
         agent.reset_training_state()
         if self.checkpoint_path.exists():
@@ -70,11 +66,18 @@ class TrainingSessionManager:
     def clear_logs(self) -> None:
         """清空当前算法 TensorBoard 数据。"""
 
-        tensorboard_log = self.log_dir.parent / f"{self.log_dir.name}_tensorboard.log"
-        if tensorboard_log.exists():
-            tensorboard_log.unlink()
+        for tensorboard_log in self.log_dir.parent.glob(
+            f"{self.log_dir.name}_tensorboard*.log"
+        ):
+            try:
+                tensorboard_log.unlink()
+            except PermissionError:
+                continue
 
         if self.log_dir.exists():
-            shutil.rmtree(self.log_dir)
+            try:
+                shutil.rmtree(self.log_dir)
+            except PermissionError:
+                return
         self.log_dir.mkdir(parents=True, exist_ok=True)
 

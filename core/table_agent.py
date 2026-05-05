@@ -1,8 +1,4 @@
-"""通用表格型算法适配器。
-
-`algorithms/` 中只放核心算法函数；这个适配器负责把函数接入训练循环、
-Info Dict、TensorBoard、UI、保存和恢复。
-"""
+"""把核心算法函数接入训练框架的 Agent。"""
 
 from __future__ import annotations
 
@@ -25,7 +21,7 @@ from core.rl_parameters import (
 
 
 class TableAgent(AgentBase):
-    """把一个核心 RL 函数包装成可训练、可视化、可保存的 Agent。"""
+    """面向离散状态动作空间的通用 Agent 包装器。"""
 
     def __init__(
         self,
@@ -128,11 +124,7 @@ class TableAgent(AgentBase):
         return info
 
     def reset(self) -> None:
-        """清空 episode 级临时动作缓存。
-
-        对 SARSA 这类 on-policy 算法，上一时刻采样出的 ``a_next`` 只属于
-        当前 episode；进入新 episode 后必须丢弃，不能把旧动作带到新的起点。
-        """
+        """清空 episode 内复用的动作缓存。"""
 
         self._next_action = None
         self._next_action_state = None

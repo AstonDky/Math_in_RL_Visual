@@ -1,7 +1,6 @@
 """训练调度引擎。
 
-PyQt6 的 UI 线程必须保持轻量，否则窗口会卡顿。
-因此训练循环放在 QThread 中运行，并通过 signal 把标准 Info Dict 发回 UI。
+训练循环运行在 QThread 中，通过 signal 把标准 Info Dict 发回界面。
 """
 
 from __future__ import annotations
@@ -52,7 +51,7 @@ class TrainingEngine(QThread):
         self._episode = 0
 
     def run(self) -> None:
-        """QThread 入口：循环采样、更新、发射 Info Dict。"""
+        """QThread 入口。"""
 
         self._running = True
         self._paused = False
@@ -104,6 +103,7 @@ class TrainingEngine(QThread):
                             "rollout/episode_length": float(episode_steps),
                         },
                         self._episode,
+                        force=True,
                     )
                 self.episode_finished.emit(self._episode, episode_reward)
                 self._episode += 1
@@ -138,17 +138,23 @@ class TrainingEngine(QThread):
         self.save_checkpoint()
 
     def restart_session(self) -> None:
-        """重新运行：清空旧训练状态、旧 checkpoint 和旧日志。"""
+        """重新开始当前算法的训练会话。"""
 
         if self.isRunning():
             self.stop()
+        logger_template = self.logger
         if self.logger is not None:
             self.logger.close()
             self.logger = None
         if self.session_manager is not None:
             step, episode = self.session_manager.reset_run(self.agent)
             self.set_progress(step, episode)
-            self.logger = TensorBoardLogger(log_dir=self.session_manager.log_dir)
+            if logger_template is not None:
+                self.logger = logger_template.clone_for_log_dir(
+                    self.session_manager.log_dir
+                )
+            else:
+                self.logger = TensorBoardLogger(log_dir=self.session_manager.log_dir)
         else:
             self.agent.reset_training_state()
             self.set_progress(0, 0)
@@ -157,7 +163,7 @@ class TrainingEngine(QThread):
         self.status_changed.emit("restarted")
 
     def continue_session(self) -> bool:
-        """继续上一次运行：加载 checkpoint。"""
+        """从 checkpoint 恢复训练会话。"""
 
         if self.isRunning():
             self.stop()
@@ -169,7 +175,10 @@ class TrainingEngine(QThread):
             self.status_changed.emit("no checkpoint found")
             return False
         self.set_progress(*loaded)
-        self.set_logger(TensorBoardLogger(log_dir=self.session_manager.log_dir))
+        if self.logger is not None:
+            self.set_logger(self.logger.clone_for_log_dir(self.session_manager.log_dir))
+        else:
+            self.set_logger(TensorBoardLogger(log_dir=self.session_manager.log_dir))
         self.env.reset()
         gc.collect()
         self.status_changed.emit(f"loaded checkpoint: step={loaded[0]}")
@@ -212,7 +221,7 @@ class TrainingEngine(QThread):
             return self.delay_ms
 
     def _sleep_delay(self, delay_ms: float) -> None:
-        """支持无限接近 0 的亚毫秒延迟。"""
+        """按毫秒或亚毫秒训练间隔等待。"""
 
         if delay_ms <= 0.0:
             return
@@ -222,23 +231,14 @@ class TrainingEngine(QThread):
             self.msleep(int(delay_ms))
 
     def _should_emit_info(self, delay_ms: float) -> bool:
-        """Throttle UI refresh in high-speed mode so controls stay responsive.
-
-        Training should continue at full speed even when delay is near zero, but
-        the UI thread must not be flooded with every single step; otherwise the
-        speed slider and buttons appear to stop responding.
-        """
+        """高速训练时降低界面刷新频率。"""
 
         if delay_ms >= 1.0:
             return True
         return self._step % self.fast_ui_interval_steps == 0
 
     def _emit_trace_sequence(self, info: InfoDict) -> None:
-        """把一次算法更新拆成多次 UI 指针事件。
-
-        算法计算仍然是原子完成的；这里负责教学展示，让代码指针在
-        自动解析出的核心函数源码行之间移动。最后一行才携带 metrics。
-        """
+        """把一次更新展开成算法指针的逐行展示事件。"""
 
         trace = info.get("algorithm_trace")
         delay_ms = self._delay_ms()

@@ -1,9 +1,4 @@
-"""Math in RL Visual 应用入口。
-
-切换算法时，主函数只负责选择核心算法函数与参数配置。
-框架会在 ``core.algorithm_adapters`` 中按函数签名自动选适配器；
-UI、训练引擎、会话管理和保存恢复层保持不变。
-"""
+"""Math in RL Visual 应用入口。"""
 
 from __future__ import annotations
 
@@ -27,7 +22,7 @@ from utils.tensorboard import TensorBoardLauncher
 
 CORE_ALGORITHM = sarsa_fa
 ALGORITHM_NAME = CORE_ALGORITHM.__name__
-STARTUP_MODE = "restart"  # "restart" 清空旧数据；"continue" 恢复 checkpoint。
+STARTUP_MODE = "restart"  # "restart" 新训练；"continue" 读 checkpoint。
 ALGORITHM_CONFIG = RLAlgorithmConfig(
     alpha=0.02,
     gamma=0.9,
@@ -40,10 +35,14 @@ ALGORITHM_CONFIG = RLAlgorithmConfig(
     feature_order=0,
     weight_init="zeros",
 )
+TENSORBOARD_LOG_EVERY_STEPS = 1
+TENSORBOARD_FLUSH_EVERY_STEPS = 5
+TENSORBOARD_FLUSH_EVERY_SECONDS = 1.0
+TENSORBOARD_RELOAD_SECONDS = 1.0
 
 
 def build_agent(env: GridWorld) -> AgentBase:
-    """算法热插拔入口：只改上面的 CORE_ALGORITHM 和 ALGORITHM_CONFIG。"""
+    """根据 main.py 顶部配置创建训练 Agent。"""
 
     return TableAgent(
         num_states=env.num_states,
@@ -73,7 +72,12 @@ def main() -> int:
         session_manager=session_manager,
         agent=agent,
     )
-    logger = TensorBoardLogger(log_dir=session_manager.log_dir)
+    logger = TensorBoardLogger(
+        log_dir=session_manager.log_dir,
+        log_interval_steps=TENSORBOARD_LOG_EVERY_STEPS,
+        flush_interval_steps=TENSORBOARD_FLUSH_EVERY_STEPS,
+        flush_interval_seconds=TENSORBOARD_FLUSH_EVERY_SECONDS,
+    )
     engine = TrainingEngine(
         env=env,
         agent=agent,
@@ -85,6 +89,7 @@ def main() -> int:
     tensorboard = TensorBoardLauncher(
         log_dir=session_manager.log_dir,
         preferred_port=6006,
+        reload_interval_seconds=TENSORBOARD_RELOAD_SECONDS,
         status_callback=engine.status_changed.emit,
     )
 
@@ -106,7 +111,7 @@ def prepare_startup_session(
     session_manager: TrainingSessionManager,
     agent: AgentBase,
 ) -> tuple[str, tuple[int, int]]:
-    """程序启动时明确选择新训练或继续上次，避免 TensorBoard 混入旧数据。"""
+    """准备启动时的训练会话。"""
 
     if mode == "continue":
         loaded = session_manager.load(agent)

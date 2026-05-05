@@ -41,6 +41,13 @@ class MainWindow(QMainWindow):
         self.grid_painter = GridPainter(layout=env.layout)
         self.grid_painter.set_reward_map(env.reward_map())
         self.monitor_panel = MonitorPanel(layout=env.layout)
+        if engine.logger is not None and tensorboard is not None:
+            self.monitor_panel.set_tensorboard_cadence(
+                log_interval_steps=engine.logger.log_interval_steps,
+                flush_interval_steps=engine.logger.flush_interval_steps,
+                flush_interval_seconds=engine.logger.flush_interval_seconds,
+                reload_interval_seconds=tensorboard.reload_interval_seconds,
+            )
         self.play_button = QPushButton("开始")
         self.pause_button = QPushButton("暂停")
         self.stop_button = QPushButton("停止")

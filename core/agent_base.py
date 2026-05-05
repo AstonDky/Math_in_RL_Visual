@@ -1,9 +1,7 @@
 """算法基类与 Info Dict 协议。
 
-本项目最重要的架构约束在这里：
-UI、训练引擎、TensorBoard 记录器都不允许读取算法的私有变量。
-算法每完成一次更新，必须通过标准 Info Dict 主动“汇报”可视化与监控数据。
-这样切换算法时，UI 不需要知道具体算法是 TD、MC、DP 还是 Q-learning。
+算法更新后的可视化数据统一从 Info Dict 流出。UI、训练引擎和
+TensorBoard 只依赖这个结构，不读取具体算法的内部变量。
 """
 
 from __future__ import annotations
@@ -18,7 +16,7 @@ from core.env_base import Action, State
 
 
 class MathLog(TypedDict):
-    """单步数学计算日志，用于 UI 展示公式、变量与中间结果。"""
+    """单步更新的公式、变量和代入计算。"""
 
     formula: str
     calculation: NotRequired[str]
@@ -26,7 +24,7 @@ class MathLog(TypedDict):
 
 
 class InfoDict(TypedDict):
-    """算法向外部系统返回的唯一标准数据通道。
+    """一次算法更新的标准展示数据。
 
     必填字段:
         policy_probs: 形状为 [num_states, num_actions] 的策略概率矩阵。
@@ -59,11 +57,7 @@ class InfoDict(TypedDict):
 
 
 class AgentBase(ABC):
-    """所有强化学习算法的抽象基类。
-
-    新算法只需要继承这个类，并实现 :meth:`act` 与 :meth:`update`。
-    只要返回的 Info Dict 满足协议，主函数、训练引擎和 UI 就无需改动。
-    """
+    """所有强化学习 Agent 的共同接口。"""
 
     def __init__(self, num_states: int, num_actions: int) -> None:
         self.num_states = num_states
@@ -87,26 +81,23 @@ class AgentBase(ABC):
         """执行一次算法更新，并返回标准 Info Dict。"""
 
     def reset(self) -> None:
-        """在新 episode 开始时重置算法内部临时状态。
-
-        不是每种算法都需要 episode 级缓存，因此这里提供空实现。
-        """
+        """重置 episode 内状态。"""
 
     def reset_training_state(self) -> None:
-        """清空训练得到的长期状态，用于“重新运行”。"""
+        """清空长期训练状态。"""
 
     def state_dict(self) -> dict[str, Any]:
-        """导出算法状态，用于保存 checkpoint。"""
+        """导出可保存的算法状态。"""
 
         return {}
 
     def load_state_dict(self, state: dict[str, Any]) -> None:
-        """加载算法状态，用于“继续上一次运行”。"""
+        """恢复保存过的算法状态。"""
 
         _ = state
 
     def validate_info(self, info: InfoDict) -> None:
-        """在训练引擎边界检查 Info Dict，尽早暴露算法实现错误。"""
+        """检查 Info Dict 的基本形状和概率归一化。"""
 
         probs = info["policy_probs"]
         expected_shape = (self.num_states, self.num_actions)

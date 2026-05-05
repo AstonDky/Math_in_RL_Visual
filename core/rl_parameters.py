@@ -1,8 +1,4 @@
-"""强化学习通用参数、状态表和算法函数协议。
-
-这里集中放“书中算法常见会用到的参数”。算法函数只关心这些结构，
-不用知道 UI、QThread、TensorBoard 或环境实现细节。
-"""
+"""强化学习参数、状态表和算法函数协议。"""
 
 from __future__ import annotations
 
@@ -215,7 +211,7 @@ def make_state_value(
     q_values: NDArray[np.float64],
     policy_probs: NDArray[np.float64],
 ) -> float:
-    """Return V^pi(s)=sum_a pi(a|s) Q(s,a) for one state."""
+    """计算单个状态的当前策略价值 V^pi(s)。"""
 
     probs = np.asarray(policy_probs, dtype=float)
     probs = np.nan_to_num(probs, nan=0.0, posinf=0.0, neginf=0.0)
@@ -232,7 +228,7 @@ def make_state_values(
     q_table: NDArray[np.float64],
     policy_probs: NDArray[np.float64],
 ) -> NDArray[np.float64]:
-    """Return current-policy state values for every state."""
+    """计算所有状态的当前策略价值。"""
 
     q_table = np.asarray(q_table, dtype=float)
     policy_probs = np.asarray(policy_probs, dtype=float)
@@ -271,7 +267,7 @@ def build_action_value_features(
     feature_order: int,
     state_shape: tuple[int, int] | None,
 ) -> NDArray[np.float64]:
-    """Build phi(s,a) for action-value function approximation."""
+    """构造动作价值函数近似特征 phi(s,a)。"""
 
     if feature_kind == "one_hot":
         features = np.zeros((num_states, num_actions, num_states * num_actions))

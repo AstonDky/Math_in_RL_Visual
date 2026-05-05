@@ -5,7 +5,7 @@
     1: 禁止区域，黄色，默认可进入但会得到 r_forbidden 惩罚。
     2: 目标区域，绿色，到达后 episode 结束。
 
-默认布局来自用户 prompt:
+默认布局:
     [00000, 01100, 00100, 01210, 01000]
 """
 
@@ -117,10 +117,7 @@ class GridWorld(EnvBase):
         return tuple(self._target_states)
 
     def reset(self, seed: int | None = None) -> State:
-        """重置到固定起点。
-
-        seed 参数预留给后续随机起点或随机转移模型；当前确定性环境不使用。
-        """
+        """重置到起点状态。"""
 
         _ = seed
         self._current_state = self._start_state
@@ -150,11 +147,7 @@ class GridWorld(EnvBase):
         state: State,
         action: Action,
     ) -> tuple[State, float, bool, dict[str, object]]:
-        """查询一次状态转移，但不改变环境当前位置。
-
-        TD 控制算法需要估计每个动作的后继状态和奖励；这个方法提供
-        只读模型查询，让算法不必偷偷读取或修改环境内部变量。
-        """
+        """查询一次只读状态转移。"""
 
         action_enum = GridAction(action)
         row, col = self.state_to_pos(state)

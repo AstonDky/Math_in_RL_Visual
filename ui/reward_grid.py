@@ -12,7 +12,7 @@ from envs.grid_world import CellType
 
 
 class RewardGrid(QWidget):
-    """Display current-policy state values V^pi(s)."""
+    """显示当前策略下的状态价值 V^pi(s)。"""
 
     def __init__(self, layout: NDArray[np.int_], parent=None) -> None:
         super().__init__(parent)

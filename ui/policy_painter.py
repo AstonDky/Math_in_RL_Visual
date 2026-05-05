@@ -14,7 +14,7 @@ from envs.grid_world import CellType, GridAction
 
 
 class PolicyPainter(QWidget):
-    """Use probability-scaled arrows to visualize the current policy."""
+    """用长度按概率缩放的箭头绘制当前策略。"""
 
     def __init__(self, layout: NDArray[np.int_], parent=None) -> None:
         super().__init__(parent)

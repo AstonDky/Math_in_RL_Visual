@@ -108,6 +108,27 @@ class MonitorPanel(QWidget):
                 "rollout/episode_length, train/loss, "
                 "train/td_error, train/q_value"
             )
+            cadence = getattr(self, "_tensorboard_cadence", "")
+            if cadence:
+                self.tensorboard_note.setText(
+                    f"{self.tensorboard_note.text()}\n{cadence}"
+                )
+
+    def set_tensorboard_cadence(
+        self,
+        log_interval_steps: int,
+        flush_interval_steps: int,
+        flush_interval_seconds: float,
+        reload_interval_seconds: float,
+    ) -> None:
+        self._tensorboard_cadence = (
+            "TensorBoard 节奏: "
+            f"每 {log_interval_steps} 个训练 update 写入一次；"
+            f"每 {flush_interval_steps} 个写入步或 "
+            f"{flush_interval_seconds:g}s flush；"
+            f"页面约每 {reload_interval_seconds:g}s reload。"
+        )
+        self.tensorboard_note.setText(self._tensorboard_cadence)
 
     def clear(self) -> None:
         self.formula_label.setText("-")

@@ -95,7 +95,7 @@ class GridPainter(QWidget):
         painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, text)
 
     def _draw_current_state(self, painter: QPainter, rect: QRectF) -> None:
-        """用红色边框标记当前状态，不再使用蓝色填充。"""
+        """用边框标记当前状态。"""
 
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.setPen(QPen(QColor("#c62828"), 3))
