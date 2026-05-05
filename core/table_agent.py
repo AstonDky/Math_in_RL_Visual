@@ -104,6 +104,7 @@ class TableAgent(AgentBase):
 
         info: InfoDict = {
             "policy_probs": self.tables.policy.copy(),
+            "state_values": self.tables.v.copy(),
             "value_table": self.tables.q.copy(),
             "reward_map": self.reward_map.copy(),
             "math_log": {

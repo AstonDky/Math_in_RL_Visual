@@ -12,7 +12,7 @@ from envs.grid_world import CellType
 
 
 class RewardGrid(QWidget):
-    """实时显示最优状态值 V(s)=max_a Q(s,a)。"""
+    """Display current-policy state values V^pi(s)."""
 
     def __init__(self, layout: NDArray[np.int_], parent=None) -> None:
         super().__init__(parent)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import numpy as np
 from numpy.typing import NDArray
 from PyQt6.QtWidgets import (
     QGroupBox,
@@ -42,7 +43,7 @@ class MonitorPanel(QWidget):
         formula_layout.addWidget(self.calculation_label)
         formula_layout.addWidget(self.variables_view)
 
-        reward_box = QGroupBox("最优状态值 V(s) 网格")
+        reward_box = QGroupBox("当前策略 state value V^π(s) 网格")
         reward_layout = QVBoxLayout(reward_box)
         reward_layout.addWidget(self.reward_grid)
 
@@ -78,10 +79,12 @@ class MonitorPanel(QWidget):
         variables = math_log.get("variables", {})
         self.variables_view.setPlainText(self._format_dict(variables))
 
-        value_table = info.get("value_table")
-        if value_table is not None:
+        state_values = info.get("state_values")
+        if state_values is None:
+            state_values = self._state_values_from_info(info)
+        if state_values is not None:
             self.reward_grid.update_values(
-                value_map=value_table.max(axis=1),
+                value_map=state_values,
                 highlight_state=info.get("next_state"),
             )
 
@@ -113,6 +116,30 @@ class MonitorPanel(QWidget):
         self.reward_grid.clear()
         self.policy_painter.clear()
         self.algorithm_pointer.clear()
+
+    def _state_values_from_info(self, info: dict) -> NDArray | None:
+        value_table = info.get("value_table")
+        policy_probs = info.get("policy_probs")
+        if value_table is None:
+            return None
+
+        values = np.asarray(value_table, dtype=float)
+        if values.ndim == 1:
+            return values
+        if policy_probs is None:
+            return None
+
+        probs = np.asarray(policy_probs, dtype=float)
+        probs = np.nan_to_num(probs, nan=0.0, posinf=0.0, neginf=0.0)
+        probs = np.clip(probs, 0.0, None)
+        row_sums = probs.sum(axis=1, keepdims=True)
+        probs = np.divide(
+            probs,
+            row_sums,
+            out=np.full_like(probs, 1.0 / probs.shape[1], dtype=float),
+            where=row_sums > 0.0,
+        )
+        return np.sum(probs * values, axis=1)
 
     def _format_dict(self, data: dict) -> str:
         if not data:

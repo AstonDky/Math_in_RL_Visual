@@ -16,7 +16,7 @@ from numpy.typing import NDArray
 from core.env_base import Action, State
 
 
-PolicyKind = Literal["greedy", "epsilon_greedy"]
+PolicyKind = Literal["greedy", "epsilon_greedy", "softmax"]
 ValueFunctionKind = Literal["table", "linear"]
 FeatureKind = Literal["one_hot", "fourier"]
 WeightInitKind = Literal["zeros", "normal"]
@@ -33,6 +33,7 @@ class RLAlgorithmConfig:
     auto_refresh_policy: bool = True
     initial_policy: NDArray[np.float64] | None = None
     seed: int | None = 13
+    softmax_temperature: float = 1.0
     value_function: ValueFunctionKind = "table"
     feature_kind: FeatureKind = "one_hot"
     feature_order: int = 0
@@ -87,7 +88,6 @@ class RLTables:
         initial_policy: NDArray[np.float64] | None = None,
     ) -> "RLTables":
         q = np.zeros((num_states, num_actions), dtype=float)
-        v = np.zeros(num_states, dtype=float)
         policy = _build_initial_policy(num_states, num_actions, initial_policy)
         features = build_action_value_features(
             num_states=num_states,
@@ -103,7 +103,7 @@ class RLTables:
         )
         if config.value_function == "linear":
             q = np.tensordot(features, w, axes=([2], [0]))
-            v = q.max(axis=1)
+        v = make_state_values(q, policy)
         return cls(
             q=q,
             v=v,
@@ -144,18 +144,33 @@ class RLAlgorithmContext:
         if self.config.value_function != "linear":
             return
         self.tables.q = np.tensordot(self.tables.features, self.tables.w, axes=([2], [0]))
-        self.tables.v = self.tables.q.max(axis=1)
+        self.sync_state_values()
+
+    def sync_state_value(self, state: State) -> None:
+        self.tables.v[state] = make_state_value(
+            q_values=self.tables.q[state],
+            policy_probs=self.tables.policy[state],
+        )
+
+    def sync_state_values(self) -> None:
+        self.tables.v = make_state_values(
+            q_table=self.tables.q,
+            policy_probs=self.tables.policy,
+        )
 
     def refresh_policy_state(self, state: State) -> None:
         self.tables.policy[state] = make_policy_probs(
             q_values=self.tables.q[state],
             policy_kind=self.config.behavior_policy,
             epsilon=self.config.epsilon,
+            softmax_temperature=self.config.softmax_temperature,
         )
+        self.sync_state_value(state)
 
     def refresh_all_policies(self) -> None:
         for state in range(self.num_states):
             self.refresh_policy_state(state)
+        self.sync_state_values()
 
 
 CoreAlgorithm = Callable[[RLAlgorithmContext, RLTransition], RLStepResult]
@@ -165,6 +180,7 @@ def make_policy_probs(
     q_values: NDArray[np.float64],
     policy_kind: PolicyKind,
     epsilon: float,
+    softmax_temperature: float = 1.0,
 ) -> NDArray[np.float64]:
     """根据 Q 值生成一行策略概率。"""
 
@@ -183,7 +199,50 @@ def make_policy_probs(
         probs[best_actions] += (1.0 - epsilon) / len(best_actions)
         return probs
 
+    if policy_kind == "softmax":
+        temperature = max(float(softmax_temperature), 1e-8)
+        logits = (q_values - best_value) / temperature
+        weights = np.exp(logits)
+        total = float(weights.sum())
+        if total <= 0.0:
+            return np.full(num_actions, 1.0 / num_actions, dtype=float)
+        return weights / total
+
     raise ValueError(f"未知 policy_kind: {policy_kind}")
+
+
+def make_state_value(
+    q_values: NDArray[np.float64],
+    policy_probs: NDArray[np.float64],
+) -> float:
+    """Return V^pi(s)=sum_a pi(a|s) Q(s,a) for one state."""
+
+    probs = np.asarray(policy_probs, dtype=float)
+    probs = np.nan_to_num(probs, nan=0.0, posinf=0.0, neginf=0.0)
+    probs = np.clip(probs, 0.0, None)
+    total = float(probs.sum())
+    if total <= 0.0:
+        probs = np.full_like(probs, 1.0 / probs.shape[0], dtype=float)
+    else:
+        probs = probs / total
+    return float(np.dot(probs, np.asarray(q_values, dtype=float)))
+
+
+def make_state_values(
+    q_table: NDArray[np.float64],
+    policy_probs: NDArray[np.float64],
+) -> NDArray[np.float64]:
+    """Return current-policy state values for every state."""
+
+    q_table = np.asarray(q_table, dtype=float)
+    policy_probs = np.asarray(policy_probs, dtype=float)
+    return np.array(
+        [
+            make_state_value(q_values=q_table[state], policy_probs=policy_probs[state])
+            for state in range(q_table.shape[0])
+        ],
+        dtype=float,
+    )
 
 
 def _build_initial_policy(

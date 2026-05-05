@@ -51,6 +51,7 @@ class InfoDict(TypedDict):
     updated_state: NotRequired[State]
     done: NotRequired[bool]
     env_extra: NotRequired[dict[str, Any]]
+    state_values: NotRequired[NDArray[np.float64]]
     value_table: NotRequired[NDArray[np.float64]]
     reward_map: NotRequired[NDArray[np.float64]]
     algorithm_trace: NotRequired[dict[str, Any]]

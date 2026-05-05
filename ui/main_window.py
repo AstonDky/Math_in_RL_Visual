@@ -21,15 +21,22 @@ from core.engine import TrainingEngine
 from envs.grid_world import GridWorld
 from ui.grid_painter import GridPainter
 from ui.monitor_panel import MonitorPanel
+from utils.tensorboard import TensorBoardLauncher
 
 
 class MainWindow(QMainWindow):
     """组合控制区、GridWorld 可视化区和监控区。"""
 
-    def __init__(self, env: GridWorld, engine: TrainingEngine) -> None:
+    def __init__(
+        self,
+        env: GridWorld,
+        engine: TrainingEngine,
+        tensorboard: TensorBoardLauncher | None = None,
+    ) -> None:
         super().__init__()
         self.env = env
         self.engine = engine
+        self.tensorboard = tensorboard
 
         self.setWindowTitle("Math in RL Visual")
         self.resize(1320, 780)
@@ -63,6 +70,8 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:
         self.engine.stop()
+        if self.tensorboard is not None:
+            self.tensorboard.stop()
         super().closeEvent(event)
 
     def _build_layout(self) -> None:
@@ -109,6 +118,8 @@ class MainWindow(QMainWindow):
         self.engine.episode_finished.connect(self._on_episode_finished)
 
     def _start_or_resume(self) -> None:
+        if self.tensorboard is not None:
+            self.tensorboard.start()
         if not self.engine.isRunning():
             self.engine.start()
         else:

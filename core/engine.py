@@ -32,7 +32,7 @@ class TrainingEngine(QThread):
         delay_ms: float = 0.0,
         max_steps_per_episode: int = 200,
         save_interval_steps: int = 500,
-        fast_ui_interval_steps: int = 50,
+        fast_ui_interval_steps: int = 1,
         parent=None,
     ) -> None:
         super().__init__(parent)

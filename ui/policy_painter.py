@@ -111,18 +111,6 @@ class PolicyPainter(QWidget):
         unit_length = cell_size * 0.36
         directions = self._action_vectors()
 
-        guide_pen = QPen(QColor("#d0d7de"), max(1.0, cell_size * 0.01))
-        guide_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-        painter.setPen(guide_pen)
-        for action_index, direction in directions.items():
-            if action_index >= len(probabilities):
-                continue
-            guide_end = QPointF(
-                center.x() + direction.x() * unit_length,
-                center.y() + direction.y() * unit_length,
-            )
-            painter.drawLine(center, guide_end)
-
         prob_pen = QPen(QColor("#4b7f23"), max(1.4, cell_size * 0.024))
         prob_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         painter.setPen(prob_pen)

@@ -7,11 +7,7 @@ return DummyAgent(...) 改成 return NewAgent(...)，UI 和训练引擎无需修
 
 from __future__ import annotations
 
-import subprocess
 import sys
-import webbrowser
-from importlib.util import find_spec
-from pathlib import Path
 
 from PyQt6.QtWidgets import QApplication
 
@@ -26,6 +22,7 @@ from ui.main_window import MainWindow
 from utils.hardware import detect_hardware
 from utils.logger import TensorBoardLogger
 from utils.session import TrainingSessionManager
+from utils.tensorboard import TensorBoardLauncher
 
 
 ALGORITHM_NAME = "sarsa_value_function_8_2"
@@ -35,12 +32,13 @@ ALGORITHM_CONFIG = RLAlgorithmConfig(
     alpha=0.001,
     gamma=0.9,
     epsilon=0.1,
-    behavior_policy="epsilon_greedy",
+    behavior_policy="softmax",
     auto_refresh_policy=False,
+    softmax_temperature=1.0,
     value_function="linear",
     feature_kind="fourier",
     feature_order=5,
-    weight_init="normal",
+    weight_init="zeros",
 )
 
 
@@ -56,33 +54,6 @@ def build_agent(env: GridWorld) -> AgentBase:
         algorithm_name=ALGORITHM_NAME,
         state_shape=env.layout.shape,
     )
-
-
-def start_tensorboard(log_dir: Path, port: int = 6006) -> subprocess.Popen | None:
-    """随应用启动当前算法的 TensorBoard 页面。"""
-
-    if find_spec("tensorboard") is None:
-        return None
-
-    log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = (log_dir.parent / f"{log_dir.name}_tensorboard.log").open(
-        "w",
-        encoding="utf-8",
-    )
-    command = [
-        sys.executable,
-        "-m",
-        "tensorboard.main",
-        "--logdir",
-        str(log_dir),
-        "--port",
-        str(port),
-        "--reload_interval",
-        "2",
-    ]
-    process = subprocess.Popen(command, stdout=log_file, stderr=subprocess.STDOUT)
-    webbrowser.open(f"http://localhost:{port}")
-    return process
 
 
 def main() -> int:
@@ -103,7 +74,6 @@ def main() -> int:
         agent=agent,
     )
     logger = TensorBoardLogger(log_dir=session_manager.log_dir)
-    tensorboard_process = start_tensorboard(session_manager.log_dir)
     engine = TrainingEngine(
         env=env,
         agent=agent,
@@ -112,21 +82,21 @@ def main() -> int:
     )
     engine.set_progress(*progress)
     hardware = detect_hardware()
-
-    window = MainWindow(env=env, engine=engine)
-    window.show()
-    tensorboard_status = (
-        "TensorBoard: http://localhost:6006"
-        if tensorboard_process is not None
-        else "TensorBoard 未启动，请检查依赖"
+    tensorboard = TensorBoardLauncher(
+        log_dir=session_manager.log_dir,
+        preferred_port=6006,
+        status_callback=engine.status_changed.emit,
     )
+
+    window = MainWindow(env=env, engine=engine, tensorboard=tensorboard)
+    window.show()
+    tensorboard_status = "TensorBoard 将在点击开始训练后自动打开"
     window.statusBar().showMessage(
         f"{hardware.backend} | {hardware.note} | {startup_status} | {tensorboard_status}"
     )
 
     exit_code = app.exec()
-    if tensorboard_process is not None:
-        tensorboard_process.terminate()
+    tensorboard.stop()
     engine.set_logger(None)
     return exit_code
 
