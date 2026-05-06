@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -9,13 +10,14 @@ from typing import Any, Literal
 import numpy as np
 from numpy.typing import NDArray
 
-from core.env_base import Action, State
+from core.env_base import Action, EnvBase, State
 
 
 PolicyKind = Literal["greedy", "epsilon_greedy", "softmax"]
 ValueFunctionKind = Literal["table", "linear"]
 FeatureKind = Literal["one_hot", "fourier"]
 WeightInitKind = Literal["zeros", "normal"]
+TrainingMode = Literal["transition", "episode"]
 
 
 @dataclass(slots=True)
@@ -23,12 +25,22 @@ class RLAlgorithmConfig:
     """当前书中算法可视化需要的最小通用参数。"""
 
     alpha: float = 0.2
+    beta: float | None = None
+    alpha_theta: float | None = None
+    alpha_w: float | None = None
+    alpha_v: float | None = None
     gamma: float = 0.9
     epsilon: float = 0.1
+    lambda_: float = 0.0
+    iterations: int = 1
+    n_steps: int = 1
+    planning_steps: int = 0
+    max_steps: int = 200
     behavior_policy: PolicyKind = "epsilon_greedy"
     auto_refresh_policy: bool = True
     initial_policy: NDArray[np.float64] | None = None
     seed: int | None = 13
+    temperature: float | None = None
     softmax_temperature: float = 1.0
     value_function: ValueFunctionKind = "table"
     feature_kind: FeatureKind = "one_hot"
@@ -64,6 +76,24 @@ class RLStepResult:
 
 
 @dataclass(slots=True)
+class RLStepEvent:
+    """一次可展示的算法更新事件。"""
+
+    transition: RLTransition
+    result: RLStepResult
+    env_extra: dict[str, Any]
+
+
+@dataclass(slots=True)
+class RLEpisodeResult:
+    """整段 episode 算法运行后的标准结果。"""
+
+    updates: list[RLStepEvent]
+    episode_reward: float
+    episode_steps: int
+
+
+@dataclass(slots=True)
 class RLTables:
     """算法共享状态表。"""
 
@@ -71,7 +101,9 @@ class RLTables:
     v: NDArray[np.float64]
     policy: NDArray[np.float64]
     w: NDArray[np.float64]
+    theta: NDArray[np.float64]
     features: NDArray[np.float64]
+    extras: dict[str, Any]
 
     @classmethod
     def create(
@@ -93,7 +125,15 @@ class RLTables:
             state_shape=state_shape,
         )
         w = _build_initial_w(
+            num_states=num_states,
+            num_actions=num_actions,
             feature_dim=features.shape[-1],
+            config=config,
+            rng=rng,
+        )
+        theta = _build_initial_parameter_table(
+            num_states=num_states,
+            num_actions=num_actions,
             config=config,
             rng=rng,
         )
@@ -105,7 +145,9 @@ class RLTables:
             v=v,
             policy=policy,
             w=w,
+            theta=theta,
             features=features,
+            extras={},
         )
 
 
@@ -137,10 +179,82 @@ class RLAlgorithmContext:
         return self.tables.features[state, action].copy()
 
     def sync_q_from_w(self) -> None:
-        if self.config.value_function != "linear":
+        if self.config.value_function != "linear" or np.asarray(self.tables.w).ndim != 1:
             return
         self.tables.q = np.tensordot(self.tables.features, self.tables.w, axes=([2], [0]))
         self.sync_state_values()
+
+    def get_runtime_state(self, name: str) -> Any:
+        """按书中常见符号读取当前运行时状态。"""
+
+        if name == "q":
+            return self.tables.q.copy()
+        if name == "v":
+            return self.tables.v.copy()
+        if name == "policy":
+            return self.tables.policy.copy()
+        if name == "w":
+            return self.tables.w.copy()
+        if name == "theta":
+            return self.tables.theta.copy()
+        if name not in self.tables.extras:
+            self.tables.extras[name] = _build_runtime_extra(name, self)
+        return _copy_runtime_value(self.tables.extras[name])
+
+    def set_runtime_state(self, name: str, value: Any) -> None:
+        """把算法运行后的状态写回框架。"""
+
+        if name == "q":
+            self.tables.q = np.asarray(value, dtype=float).copy()
+            return
+        if name == "v":
+            self.tables.v = np.asarray(value, dtype=float).copy()
+            return
+        if name == "policy":
+            self.tables.policy = normalize_policy_table(value, self.num_actions)
+            return
+        if name == "w":
+            self.tables.w = np.asarray(value, dtype=float).copy()
+            return
+        if name == "theta":
+            self.tables.theta = np.asarray(value, dtype=float).copy()
+            return
+        self.tables.extras[name] = _copy_runtime_value(value)
+
+    def rebuild_visual_state(
+        self,
+        updated_names: set[str] | None = None,
+    ) -> None:
+        """根据当前运行时状态重建 Q、policy 和 V。"""
+
+        names = updated_names or set()
+
+        if self.config.value_function == "linear" and np.asarray(self.tables.w).ndim == 1:
+            self.sync_q_from_w()
+        elif np.asarray(self.tables.w).shape == (self.num_states, self.num_actions):
+            self.tables.q = np.asarray(self.tables.w, dtype=float).copy()
+
+        if "theta" in names:
+            self.tables.policy = policy_from_preferences(
+                self.tables.theta,
+                temperature=self.temperature(),
+            )
+        elif "policy" in names:
+            self.tables.policy = normalize_policy_table(
+                self.tables.policy,
+                self.num_actions,
+            )
+        elif not names.intersection({"v"}):
+            self.refresh_all_policies()
+            return
+
+        if "v" not in names or names.intersection({"q", "w", "theta", "policy"}):
+            self.sync_state_values()
+
+    def temperature(self) -> float:
+        if self.config.temperature is not None:
+            return max(float(self.config.temperature), 1e-8)
+        return max(float(self.config.softmax_temperature), 1e-8)
 
     def sync_state_value(self, state: State) -> None:
         self.tables.v[state] = make_state_value(
@@ -170,6 +284,10 @@ class RLAlgorithmContext:
 
 
 CoreAlgorithm = Callable[[RLAlgorithmContext, RLTransition], RLStepResult]
+EpisodeAlgorithm = Callable[
+    [RLAlgorithmContext, EnvBase, int, int, int],
+    RLEpisodeResult,
+]
 
 
 def make_policy_probs(
@@ -205,6 +323,39 @@ def make_policy_probs(
         return weights / total
 
     raise ValueError(f"未知 policy_kind: {policy_kind}")
+
+
+def normalize_policy_table(
+    policy: NDArray[np.float64] | Any,
+    num_actions: int,
+) -> NDArray[np.float64]:
+    """把策略矩阵按行归一化。"""
+
+    probs = np.asarray(policy, dtype=float).copy()
+    if probs.ndim != 2 or probs.shape[1] != num_actions:
+        raise ValueError(f"policy 形状必须为 [num_states, {num_actions}]。")
+    probs = np.nan_to_num(probs, nan=0.0, posinf=0.0, neginf=0.0)
+    probs = np.clip(probs, 0.0, None)
+    row_sums = probs.sum(axis=1, keepdims=True)
+    invalid_rows = row_sums <= 0.0
+    if np.any(invalid_rows):
+        probs[invalid_rows[:, 0]] = 1.0 / num_actions
+        row_sums = probs.sum(axis=1, keepdims=True)
+    return probs / row_sums
+
+
+def policy_from_preferences(
+    preferences: NDArray[np.float64] | Any,
+    temperature: float = 1.0,
+) -> NDArray[np.float64]:
+    """把偏好参数表映射成 softmax 策略概率。"""
+
+    logits = np.asarray(preferences, dtype=float)
+    stable_logits = logits - np.max(logits, axis=1, keepdims=True)
+    weights = np.exp(stable_logits / max(float(temperature), 1e-8))
+    totals = weights.sum(axis=1, keepdims=True)
+    totals[totals <= 0.0] = 1.0
+    return weights / totals
 
 
 def make_state_value(
@@ -318,10 +469,24 @@ def build_action_value_features(
 
 
 def _build_initial_w(
+    num_states: int,
+    num_actions: int,
     feature_dim: int,
     config: RLAlgorithmConfig,
     rng: np.random.Generator,
 ) -> NDArray[np.float64]:
+    if config.value_function == "table":
+        shape = (num_states, num_actions)
+        if config.weight_init == "zeros":
+            return np.zeros(shape, dtype=float)
+        if config.weight_init == "normal":
+            return rng.normal(
+                loc=config.weight_mean,
+                scale=config.weight_std,
+                size=shape,
+            ).astype(float)
+        raise ValueError(f"未知 weight_init: {config.weight_init}")
+
     if config.weight_init == "zeros":
         return np.zeros(feature_dim, dtype=float)
     if config.weight_init == "normal":
@@ -331,3 +496,47 @@ def _build_initial_w(
             size=feature_dim,
         ).astype(float)
     raise ValueError(f"未知 weight_init: {config.weight_init}")
+
+
+def _build_initial_parameter_table(
+    num_states: int,
+    num_actions: int,
+    config: RLAlgorithmConfig,
+    rng: np.random.Generator,
+) -> NDArray[np.float64]:
+    shape = (num_states, num_actions)
+    if config.weight_init == "zeros":
+        return np.zeros(shape, dtype=float)
+    if config.weight_init == "normal":
+        return rng.normal(
+            loc=config.weight_mean,
+            scale=config.weight_std,
+            size=shape,
+        ).astype(float)
+    raise ValueError(f"未知 weight_init: {config.weight_init}")
+
+
+def _build_runtime_extra(name: str, ctx: RLAlgorithmContext) -> Any:
+    if name.startswith("theta"):
+        return np.zeros((ctx.num_states, ctx.num_actions), dtype=float)
+    if name.startswith("w"):
+        return np.zeros_like(ctx.tables.w)
+    if name.startswith("q"):
+        return np.zeros_like(ctx.tables.q)
+    if name.startswith("v") or "baseline" in name:
+        return np.zeros(ctx.num_states, dtype=float)
+    if name in {"e", "z"}:
+        if ctx.config.value_function == "linear" and np.asarray(ctx.tables.w).ndim == 1:
+            return np.zeros_like(ctx.tables.w)
+        return np.zeros_like(ctx.tables.q)
+    if name in {"avg_reward", "average_reward", "reward_bar"}:
+        return 0.0
+    if name in {"baseline", "b"}:
+        return np.zeros(ctx.num_states, dtype=float)
+    return 0.0
+
+
+def _copy_runtime_value(value: Any) -> Any:
+    if isinstance(value, np.ndarray):
+        return value.copy()
+    return copy.deepcopy(value)

@@ -7,12 +7,13 @@ TensorBoard 只依赖这个结构，不读取具体算法的内部变量。
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, NotRequired, TypedDict
+from dataclasses import dataclass
+from typing import Any, Literal, NotRequired, TypedDict
 
 import numpy as np
 from numpy.typing import NDArray
 
-from core.env_base import Action, State
+from core.env_base import Action, EnvBase, State
 
 
 class MathLog(TypedDict):
@@ -56,6 +57,15 @@ class InfoDict(TypedDict):
     algorithm_name: NotRequired[str]
 
 
+@dataclass(slots=True)
+class EpisodeBatch:
+    """一次 episode 运行产生的标准展示批次。"""
+
+    infos: list[InfoDict]
+    episode_reward: float
+    episode_steps: int
+
+
 class AgentBase(ABC):
     """所有强化学习 Agent 的共同接口。"""
 
@@ -82,6 +92,22 @@ class AgentBase(ABC):
 
     def reset(self) -> None:
         """重置 episode 内状态。"""
+
+    def training_mode(self) -> Literal["transition", "episode"]:
+        """返回当前 agent 的训练驱动方式。"""
+
+        return "transition"
+
+    def run_episode(
+        self,
+        env: EnvBase,
+        step: int,
+        episode: int,
+        max_steps: int,
+    ) -> EpisodeBatch:
+        """让算法自己驱动整段 episode。"""
+
+        raise NotImplementedError("当前 agent 不支持 episode 自主训练模式。")
 
     def reset_training_state(self) -> None:
         """清空长期训练状态。"""

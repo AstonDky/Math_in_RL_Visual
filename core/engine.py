@@ -56,7 +56,15 @@ class TrainingEngine(QThread):
         self._running = True
         self._paused = False
         self.status_changed.emit("running")
+        if self.agent.training_mode() == "episode":
+            self._run_episode_mode()
+        else:
+            self._run_transition_mode()
 
+        self.save_checkpoint()
+        self.status_changed.emit("stopped")
+
+    def _run_transition_mode(self) -> None:
         state = self.env.reset()
         self.agent.reset()
         episode_reward = 0.0
@@ -82,32 +90,11 @@ class TrainingEngine(QThread):
 
             episode_reward += transition.reward
             episode_steps += 1
-
-            if self.logger is not None:
-                self.logger.log_metrics(info["metrics"], self._step)
-
-            delay_ms = self._delay_ms()
-            should_emit_info = (
-                transition.done
-                or self._should_emit_info(delay_ms)
-            )
-            if should_emit_info:
-                self._emit_trace_sequence(info)
+            self._handle_step_info(info)
             self._step += 1
 
             if transition.done or episode_steps >= self.max_steps_per_episode:
-                if self.logger is not None:
-                    self.logger.log_metrics(
-                        {
-                            "rollout/episode_reward": float(episode_reward),
-                            "rollout/episode_length": float(episode_steps),
-                        },
-                        self._episode,
-                        force=True,
-                    )
-                self.episode_finished.emit(self._episode, episode_reward)
-                self._episode += 1
-                self.save_checkpoint()
+                self._finish_episode(episode_reward, episode_steps)
                 state = self.env.reset()
                 self.agent.reset()
                 episode_reward = 0.0
@@ -118,8 +105,55 @@ class TrainingEngine(QThread):
             if self._step % self.save_interval_steps == 0:
                 self.save_checkpoint()
 
+    def _run_episode_mode(self) -> None:
+        self.agent.reset()
+        while self._is_running():
+            if self._is_paused():
+                self.msleep(40)
+                continue
+
+            batch = self.agent.run_episode(
+                env=self.env,
+                step=self._step,
+                episode=self._episode,
+                max_steps=self.max_steps_per_episode,
+            )
+            if batch.episode_steps <= 0:
+                self.msleep(1)
+                continue
+
+            for info in batch.infos:
+                self._handle_step_info(info)
+            self._step += batch.episode_steps
+            self._finish_episode(batch.episode_reward, batch.episode_steps)
+            self.agent.reset()
+
+            if self._step % self.save_interval_steps == 0:
+                self.save_checkpoint()
+
+    def _handle_step_info(self, info: InfoDict) -> None:
+        if self.logger is not None:
+            metric_step = int(info.get("step", self._step))
+            self.logger.log_metrics(info["metrics"], metric_step)
+
+        delay_ms = self._delay_ms()
+        done = bool(info.get("done", False))
+        if done or self._should_emit_info(delay_ms):
+            self._emit_trace_sequence(info)
+
+    def _finish_episode(self, episode_reward: float, episode_steps: int) -> None:
+        if self.logger is not None:
+            self.logger.log_metrics(
+                {
+                    "rollout/episode_reward": float(episode_reward),
+                    "rollout/episode_length": float(episode_steps),
+                },
+                self._episode,
+                force=True,
+            )
+        self.episode_finished.emit(self._episode, episode_reward)
+        self._episode += 1
         self.save_checkpoint()
-        self.status_changed.emit("stopped")
 
     def pause(self) -> None:
         with QMutexLocker(self._mutex):

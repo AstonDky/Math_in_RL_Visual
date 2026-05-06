@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import socket
 import subprocess
 import sys
@@ -26,7 +27,7 @@ class TensorBoardLauncher:
         self,
         log_dir: str | Path,
         preferred_port: int = 6006,
-        open_timeout_seconds: float = 20.0,
+        open_timeout_seconds: float = 60.0,
         reload_interval_seconds: float = 1.0,
         status_callback: StatusCallback | None = None,
     ) -> None:
@@ -56,7 +57,7 @@ class TensorBoardLauncher:
         except RuntimeError as error:
             self._emit(f"TensorBoard 启动失败: {error}")
             return False
-        self.url = f"http://localhost:{self.port}"
+        self.url = f"http://127.0.0.1:{self.port}"
         log_path = (
             self.log_dir.parent
             / f"{self.log_dir.name}_tensorboard_{getpid()}_{int(time.time())}.log"
@@ -68,6 +69,8 @@ class TensorBoardLauncher:
             "tensorboard.main",
             "--logdir",
             str(self.log_dir),
+            "--host",
+            "127.0.0.1",
             "--port",
             str(self.port),
             "--reload_interval",
@@ -102,7 +105,10 @@ class TensorBoardLauncher:
             self._log_file = None
 
     def is_available(self) -> bool:
-        return find_spec("tensorboard") is not None
+        return (
+            find_spec("tensorboard") is not None
+            and find_spec("pkg_resources") is not None
+        )
 
     def _open_when_ready(self) -> None:
         if self.url is None:
@@ -122,7 +128,10 @@ class TensorBoardLauncher:
                 self._emit("TensorBoard 启动失败，请查看 runs/*_tensorboard.log")
                 return
             if self._is_http_ready(self.url):
-                webbrowser.open(self.url)
+                opened = self._open_url(self.url)
+                if not opened:
+                    self._emit(f"TensorBoard ready: {self.url}")
+                    return
                 self._emit(f"TensorBoard 已打开: {self.url}")
                 return
             time.sleep(0.25)
@@ -135,6 +144,32 @@ class TensorBoardLauncher:
                 return 200 <= response.status < 500
         except (OSError, URLError):
             return False
+
+    def _open_url(self, url: str) -> bool:
+        try:
+            if webbrowser.open(url, new=2):
+                return True
+        except webbrowser.Error:
+            pass
+
+        if sys.platform.startswith("win"):
+            try:
+                os.startfile(url)  # type: ignore[attr-defined]
+                return True
+            except OSError:
+                pass
+            try:
+                subprocess.Popen(
+                    ["cmd", "/c", "start", "", url],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    stdin=subprocess.DEVNULL,
+                    creationflags=subprocess.CREATE_NO_WINDOW,
+                )
+                return True
+            except OSError:
+                return False
+        return False
 
     def _choose_port(self, preferred_port: int) -> int:
         for port in range(preferred_port, preferred_port + 20):

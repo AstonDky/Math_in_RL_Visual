@@ -75,9 +75,16 @@ class TrainingSessionManager:
                 continue
 
         if self.log_dir.exists():
-            try:
-                shutil.rmtree(self.log_dir)
-            except PermissionError:
-                return
+            self._clear_directory_contents(self.log_dir)
         self.log_dir.mkdir(parents=True, exist_ok=True)
+
+    def _clear_directory_contents(self, directory: Path) -> None:
+        for path in directory.iterdir():
+            try:
+                if path.is_dir():
+                    shutil.rmtree(path)
+                else:
+                    path.unlink()
+            except PermissionError:
+                continue
 

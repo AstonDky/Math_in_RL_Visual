@@ -134,6 +134,8 @@ class MainWindow(QMainWindow):
             self.engine.resume()
 
     def _restart_run(self) -> None:
+        if self.tensorboard is not None:
+            self.tensorboard.stop()
         self.engine.restart_session()
         self._clear_training_views()
 

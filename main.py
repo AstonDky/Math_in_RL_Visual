@@ -6,7 +6,8 @@ import sys
 
 from PyQt6.QtWidgets import QApplication
 
-from algorithms.sarsa_value_function import sarsa_fa
+from algorithms import *
+
 from core.agent_base import AgentBase
 from core.algorithm_adapters import adapt_algorithm
 from core.engine import TrainingEngine
@@ -20,17 +21,23 @@ from utils.session import TrainingSessionManager
 from utils.tensorboard import TensorBoardLauncher
 
 
-CORE_ALGORITHM = sarsa_fa
+CORE_ALGORITHM = QAC
 ALGORITHM_NAME = CORE_ALGORITHM.__name__
 STARTUP_MODE = "restart"  # "restart" 新训练；"continue" 读 checkpoint。
 ALGORITHM_CONFIG = RLAlgorithmConfig(
     alpha=0.02,
+    alpha_theta=0.02,
+    alpha_w=0.02,
     gamma=0.9,
     epsilon=0.05,
-    behavior_policy="epsilon_greedy",
+    iterations=1,
+    n_steps=1,
+    planning_steps=0,
+    max_steps=200,
+    behavior_policy="softmax",
     auto_refresh_policy=False,
     softmax_temperature=1.0,
-    value_function="linear",
+    value_function="table",
     feature_kind="one_hot",
     feature_order=0,
     weight_init="zeros",
@@ -61,8 +68,8 @@ def main() -> int:
     env = GridWorld(
         r_boundary=-10.0,
         r_forbidden=-10.0,
-        r_target=1.0,
-        r_other=0.0,
+        r_target=10,
+        r_other=-5,
         forbidden_blocks=False,
     )
     agent = build_agent(env)
@@ -96,9 +103,11 @@ def main() -> int:
     window = MainWindow(env=env, engine=engine, tensorboard=tensorboard)
     window.show()
     tensorboard_status = "TensorBoard 将在点击开始训练后自动打开"
-    window.statusBar().showMessage(
-        f"{hardware.backend} | {hardware.note} | {startup_status} | {tensorboard_status}"
-    )
+    status_bar = window.statusBar()
+    if status_bar is not None:
+        status_bar.showMessage(
+            f"{hardware.backend} | {hardware.note} | {startup_status} | {tensorboard_status}"
+        )
 
     exit_code = app.exec()
     tensorboard.stop()

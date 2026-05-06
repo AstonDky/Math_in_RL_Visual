@@ -98,12 +98,36 @@ def sarsa_fa(w, s0, pi, q_hat, grad_q_hat, step,
 
 如果你的新算法仍然符合某个已有函数签名，框架会自动复用已有适配器。如果是全新的算法族，再到 `core/algorithm_adapters.py` 中新增签名识别和适配逻辑。
 
+项目的长期目标不是只支持某两个示例算法，而是覆盖《强化学习的数学原理》中所有主线 `Algorithm x.x` 盒内算法。扩展时优先按“算法族”适配，而不是按单个算法打补丁。
+
+### 书中符号约定
+
+为了让书中算法尽量只靠 `CORE_ALGORITHM = 函数名` 和 `ALGORITHM_CONFIG` 就能接入，框架固定使用一套共享命名：
+
+- 由适配器按函数签名注入的对象/函数：`env`、`s0`、`step`、`pi`、`q_hat`、`grad_q_hat`、`theta`、`w`
+- 由 `ALGORITHM_CONFIG` 提供或预留的常用标量名：`alpha`、`beta`、`gamma`、`epsilon`、`lambda_`、`temperature`、`alpha_theta`、`alpha_w`、`alpha_v`、`softmax_temperature`、`seed`
+
+当前已经直接接通的签名族：
+
+- `sarsa_fa(w, s0, pi, q_hat, grad_q_hat, step, alpha, gamma, epsilon, episodes, max_steps)`
+- `QAC(env, theta, w, alpha_theta, alpha_w, gamma, num_episodes)`
+- 更一般的 `env` 驱动 episode 族：只要核心函数以 `env` 为首参数，并把书中状态变量和步长参数写成显式函数参数，框架就按共享运行时状态自动注入和保存。
+
+`algorithms` 包的导出规则如下：
+
+- 如果算法文件定义了 `__all__`，框架按 `__all__` 导出。
+- 如果没有 `__all__`，但文件中存在与模块同名的核心函数，例如 `algorithms/QAC.py` 中的 `def QAC(...):`，则可以直接在 `main.py` 里写 `CORE_ALGORITHM = QAC`。
+
+代码指针和源码展示默认自动解析真实核心函数源码；后续算法扩展也应优先走函数签名、源码 AST 和变量更新模式的通用分析，而不是为每个算法额外写一套手工展示配置。
+
+如果没有特别原因，后续写书中算法时优先采用 `QAC.py` 这种“核心函数自己按 episode / step 循环”的写法；框架会在外层适配训练、可视化、日志和 checkpoint。
+
 ## 在 main.py 中选择训练算法
 
 训练算法入口在 `main.py` 顶部：
 
 ```python
-from algorithms.sarsa_value_function import sarsa_fa
+from algorithms import *
 
 CORE_ALGORITHM = sarsa_fa
 ALGORITHM_NAME = CORE_ALGORITHM.__name__
@@ -112,17 +136,21 @@ STARTUP_MODE = "restart"
 
 切换算法时，一般只需要：
 
-1. 从 `algorithms/` 导入新的算法函数。
-2. 把 `CORE_ALGORITHM` 改成新的函数。
+1. 在 `algorithms/` 中写好核心算法函数。
+2. 让该函数通过 `algorithms` 包导出。
+3. 在 `CORE_ALGORITHM = ...` 这里直接填函数名。
+4. 按算法需要调整 `ALGORITHM_CONFIG`。
 
 例如：
 
 ```python
-from algorithms.my_algorithm import my_algorithm
+from algorithms import *
 
-CORE_ALGORITHM = my_algorithm
+CORE_ALGORITHM = QAC
 ALGORITHM_NAME = CORE_ALGORITHM.__name__
 ```
+
+`CORE_ALGORITHM` 这里应直接填写核心算法函数名称本身，不要填写模块对象。
 
 `ALGORITHM_NAME` 默认从函数名自动生成，对应的 TensorBoard 日志会写到：
 
@@ -143,8 +171,14 @@ sessions/<algorithm_name>/checkpoint.pkl
 ```python
 ALGORITHM_CONFIG = RLAlgorithmConfig(
     alpha=0.02,
+    beta=None,
+    alpha_theta=0.02,
+    alpha_w=0.02,
+    alpha_v=None,
     gamma=0.9,
     epsilon=0.05,
+    lambda_=0.0,
+    temperature=None,
     behavior_policy="epsilon_greedy",
     auto_refresh_policy=False,
     softmax_temperature=1.0,
@@ -158,14 +192,22 @@ ALGORITHM_CONFIG = RLAlgorithmConfig(
 常用字段：
 
 - `alpha`: 学习率。
+- `beta`: 第二个步长参数，适用于需要双步长的书中算法。
+- `alpha_theta`: actor / 策略参数步长。
+- `alpha_w`: critic / action-value 参数步长。
+- `alpha_v`: state-value 或 baseline 参数步长。
 - `gamma`: 折扣因子。
 - `epsilon`: epsilon-greedy 的探索概率。
+- `lambda_`: eligibility trace 等算法会用到的 trace 参数。
+- `temperature`: 书中 softmax 温度符号的预留字段。
 - `behavior_policy`: 行为策略，可选 `"greedy"`、`"epsilon_greedy"`、`"softmax"`。
 - `softmax_temperature`: 只有选择 softmax 策略时才主要使用。
 - `value_function`: 价值函数形式，可选 `"table"`、`"linear"`。
 - `feature_kind`: 函数近似特征，可选 `"one_hot"`、`"fourier"`。
 - `feature_order`: Fourier 特征阶数。
 - `weight_init`: 权重初始化方式，可选 `"zeros"`、`"normal"`。
+
+并不是每个算法都会同时使用这些字段，但后续写书中算法时，优先复用这些约定名称，而不是临时再发明一套框架私有参数名。
 
 当前默认使用 `value_function="linear"` 和 `feature_kind="one_hot"`，是为了更稳定地观察 Algorithm 8.2 的学习路径。
 
@@ -315,12 +357,37 @@ New algorithms should stay close to book pseudocode or personal notes. Algorithm
 
 If the function signature matches an existing adapter family, the framework reuses it automatically. For a new algorithm family, add signature matching and adaptation in `core/algorithm_adapters.py`.
 
+The long-term goal is not to support only two demo algorithms, but to cover the main boxed `Algorithm x.x` entries in *Mathematical Principles of Reinforcement Learning*. New support should be added by algorithm family, not by one-off per-algorithm patches.
+
+### Book Symbol Contract
+
+To keep new algorithms close to the book and runnable with only `CORE_ALGORITHM = function_name` plus `ALGORITHM_CONFIG`, the framework uses a shared naming contract:
+
+- Objects/functions injected by adapters according to the function signature: `env`, `states`, `actions`, `num_states`, `num_actions`, `model`/`mdp`, `transition`, `reward`, `s0`, `step`, `pi`, `policy_probs`, `sample_from_policy`, `softmax`, `q`/`q_hat`, `grad_q`/`grad_q_hat`, `v_hat`, `grad_v_hat`, `grad_log_policy`, `theta`, `w`
+- Scalar names provided or reserved in `ALGORITHM_CONFIG`: `alpha`, `beta`, `gamma`, `epsilon`, `lambda_`, `temperature`, `alpha_theta`, `alpha_w`, `alpha_v`, `softmax_temperature`, `iterations`/`sweeps`, `n`/`n_steps`, `planning_steps`, `max_steps`, `seed`
+
+Adapter families already wired today:
+
+- `sarsa_fa(w, s0, pi, q_hat, grad_q_hat, step, alpha, gamma, epsilon, episodes, max_steps)`
+- `QAC(env, theta, w, alpha_theta, alpha_w, gamma, num_episodes)`
+- `value_iteration(env, v, policy, model, gamma, iterations)` / `policy_iteration(env, v, policy, transition, reward, gamma, sweeps)`
+- The more general env-driven episode family: if the core function starts with `env` and uses the state names, config names and injected helper names listed above, DP, Monte Carlo, TD, n-step, Dyna, policy-gradient and actor-critic style functions enter the generic episode adapter.
+
+The `algorithms` package exports names with these rules:
+
+- If an algorithm module defines `__all__`, those names are exported.
+- Otherwise, if the module contains a callable with the same name as the module, such as `def QAC(...):` in `algorithms/QAC.py`, you can directly write `CORE_ALGORITHM = QAC` in `main.py`.
+
+The source-code pointer already parses the real core function automatically. Future formula and calculation display should also prefer generic analysis from function signatures, AST and variable-update patterns instead of per-algorithm manual display configuration.
+
+Unless there is a strong reason not to, future book-style algorithms should prefer the same “the core function drives its own episode / step loop” style as `QAC.py`; the framework handles training control, visualization, logging and checkpointing around it.
+
 ## Select The Training Algorithm In main.py
 
 The algorithm entry is at the top of `main.py`:
 
 ```python
-from algorithms.sarsa_value_function import sarsa_fa
+from algorithms import *
 
 CORE_ALGORITHM = sarsa_fa
 ALGORITHM_NAME = CORE_ALGORITHM.__name__
@@ -329,17 +396,21 @@ STARTUP_MODE = "restart"
 
 To switch algorithms, usually:
 
-1. Import the new function from `algorithms/`.
-2. Set `CORE_ALGORITHM` to that function.
+1. Write the core algorithm function in `algorithms/`.
+2. Make sure the function is exported by the `algorithms` package.
+3. Put the function name directly in `CORE_ALGORITHM = ...`.
+4. Adjust `ALGORITHM_CONFIG` for that algorithm.
 
 Example:
 
 ```python
-from algorithms.my_algorithm import my_algorithm
+from algorithms import *
 
-CORE_ALGORITHM = my_algorithm
+CORE_ALGORITHM = QAC
 ALGORITHM_NAME = CORE_ALGORITHM.__name__
 ```
+
+`CORE_ALGORITHM` should point to the callable core function itself, not a module object.
 
 TensorBoard logs go to:
 
@@ -360,8 +431,14 @@ Training parameters are in `ALGORITHM_CONFIG`:
 ```python
 ALGORITHM_CONFIG = RLAlgorithmConfig(
     alpha=0.02,
+    beta=None,
+    alpha_theta=0.02,
+    alpha_w=0.02,
+    alpha_v=None,
     gamma=0.9,
     epsilon=0.05,
+    lambda_=0.0,
+    temperature=None,
     behavior_policy="epsilon_greedy",
     auto_refresh_policy=False,
     softmax_temperature=1.0,
@@ -375,14 +452,22 @@ ALGORITHM_CONFIG = RLAlgorithmConfig(
 Common fields:
 
 - `alpha`: learning rate.
+- `beta`: second step size for book algorithms that use two learning rates.
+- `alpha_theta`: actor / policy-parameter step size.
+- `alpha_w`: critic / action-value step size.
+- `alpha_v`: state-value or baseline step size.
 - `gamma`: discount factor.
 - `epsilon`: exploration probability for epsilon-greedy.
+- `lambda_`: trace parameter for algorithms such as eligibility traces.
+- `temperature`: reserved field for the book-style softmax temperature symbol.
 - `behavior_policy`: `"greedy"`, `"epsilon_greedy"` or `"softmax"`.
 - `softmax_temperature`: mainly used when softmax policy is selected.
 - `value_function`: `"table"` or `"linear"`.
 - `feature_kind`: `"one_hot"` or `"fourier"`.
 - `feature_order`: Fourier feature order.
 - `weight_init`: `"zeros"` or `"normal"`.
+
+Not every algorithm uses every field, but new book-style algorithms should reuse these shared names first instead of inventing framework-private parameter names.
 
 The default uses `value_function="linear"` and `feature_kind="one_hot"` for a stable Algorithm 8.2 learning path.
 

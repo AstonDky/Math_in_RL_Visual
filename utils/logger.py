@@ -53,6 +53,7 @@ class TensorBoardLogger:
         if self._writer is not None:
             self._writer.flush()
             self._writer.close()
+            self._writer = None
 
     def clone_for_log_dir(self, log_dir: str | Path) -> "TensorBoardLogger":
         return TensorBoardLogger(
