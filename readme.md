@@ -12,13 +12,9 @@
 
 ## 为什么写这个项目
 
-这个项目基于我学习赵世钰老师《强化学习中的数学》时的体会。
+这个项目基于赵世钰老师的《强化学习的数学原理》中的 GridWorld 环境，主要是为了辅助强化学习算法的学习。
 
-学完书里的数学推导后，我发现自己虽然跟着公式走了一遍，但对算法真正运行时每一步在算什么、状态价值和动作价值如何变化、策略概率为什么会朝某个方向偏移，并没有形成很深的直觉。有些地方看起来懂了，实际把算法写成程序时又会发现自己学得有点马虎。
-
-另一个原因是，课本和配套 GitHub 里并没有完整提供书中 GridWorld 运行过程和绘图过程的代码。我希望有一个框架，能基于书中的 GridWorld 环境，把算法运行时的数学计算、策略变化、状态价值、代码执行位置和 TensorBoard 指标同时展示出来。
-
-所以我写了这个项目。它的目标不是把算法藏在框架里，而是让学习者可以自己写强化学习算法函数，然后把函数传给统一入口，框架负责把训练过程实时可视化。这样一方面帮助自己把数学公式和程序执行对应起来，另一方面也希望后面学习的同学在理解数学的同时，更容易看懂算法在程序里到底怎样工作。
+希望通过这个项目，把算法运行过程中的价值更新、策略变化和训练结果更直观地展示出来，帮助后来学习的同学在理解数学推导的同时，也能更容易看懂代码实现和算法过程。
 
 ## 运行视频
 
@@ -233,13 +229,9 @@ utils/tensorboard.py          TensorBoard 启动和自动打开
 
 ## Why This Project Exists
 
-This project comes from my study of Zhao Shiyu's *Mathematics of Reinforcement Learning*.
+This project is based on the GridWorld environment from Zhao Shiyu's *Mathematical Principles of Reinforcement Learning*. Its main purpose is to support learning reinforcement learning algorithms.
 
-After going through the mathematical derivations, I realized that I still did not have a deep enough intuition for what each algorithm step computes, how state values and action values change, and why policy probabilities shift toward certain actions. Some formulas looked clear on paper, but once I tried to write the algorithm as code, I noticed that my understanding was still a bit rough.
-
-Another reason is that the book and its GitHub materials do not provide a complete runnable and drawable implementation for the GridWorld processes I wanted to inspect. I wanted a framework based on the book-style GridWorld environment that could show the calculation process, policy probabilities, state values, source-code execution position and TensorBoard metrics at the same time.
-
-So I built this project. The goal is not to hide algorithms inside the framework, but to let learners write their own reinforcement learning algorithm functions and pass them into a unified entry point. The framework then handles real-time visualization. This helps connect mathematical formulas with program execution, and may also help other students understand the algorithmic side while learning the math.
+It visualizes value updates, policy changes and training results during algorithm execution, so learners can connect the mathematical derivations with code implementation and the actual algorithm process more easily.
 
 ## Demo Video
 
