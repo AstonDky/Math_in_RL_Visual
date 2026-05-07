@@ -2,6 +2,10 @@
 
 ## Latest Algorithm Adapter Contract
 
+- UI 点击“重新运行”必须对当前算法开启真正的新 run：关闭 writer 和 TensorBoard、清理 checkpoint/session 状态、清理旧日志，并让新的 TensorBoard launcher/logger 指向本次运行的干净日志目录；如果 Windows 锁住旧 event 文件，新的 TensorBoard 也不能继续读取那些旧 event。
+- 重新运行后如果 TensorBoard 之前已经打开，需要用新 run 的唯一 URL 重新打开/刷新页面，避免浏览器停留在旧前端缓存或旧服务页面上。
+- Algorithm 8.2 `sarsa_fa` 适配器必须保证使用线性 action-value 权重向量；即使 `main.py` 里旧配置仍是 `value_function="table"`，用户只改 `CORE_ALGORITHM = sarsa_fa` 也不能把二维 Q 表传入 `q_hat/grad_q_hat` 导致线程崩溃。
+- `sarsa_fa(w, s0, pi, q_hat, grad_q_hat, step, ...)` 必须走 episode 模式适配：框架注入这些函数并执行原始书中训练循环，通过源码插桩把每次 `w` 更新转换为标准 `InfoDict`；不能再把它伪装成外部 transition 单步算法。
 - 全书 `Algorithm x.x` 适配优先按算法族维护：以 `env` 开头的整段训练函数进入通用 episode 适配器；常用注入名包括 `states/actions/model/transition/reward/policy_probs/sample_from_policy/softmax/q/grad_q/v_hat/grad_v_hat/grad_log_policy`；常用配置名包括 `iterations/sweeps/n_steps/planning_steps/max_steps`。只有出现这些符号覆盖不了的新算法族时，才扩展 `core/algorithm_adapters.py` 的签名匹配。
 - 除 `algorithms/` 外的项目代码改动前，仍必须先向用户汇报准备改哪些模块和它们的具体功用。
 - `algorithms/__init__.py` 对已知算法保留静态导出，同时继续动态扫描新算法；这样 `from algorithms import *` 既能服务 `CORE_ALGORITHM = QAC` 这类写法，也能让编辑器静态分析认出已有算法名。

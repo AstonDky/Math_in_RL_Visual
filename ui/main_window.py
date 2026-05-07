@@ -134,14 +134,22 @@ class MainWindow(QMainWindow):
             self.engine.resume()
 
     def _restart_run(self) -> None:
+        reopen_tensorboard = False
         if self.tensorboard is not None:
+            reopen_tensorboard = self.tensorboard.is_running()
             self.tensorboard.stop()
         self.engine.restart_session()
+        if self.tensorboard is not None and self.engine.session_manager is not None:
+            self.tensorboard.set_log_dir(self.engine.session_manager.log_dir)
+            if reopen_tensorboard:
+                self.tensorboard.start()
         self._clear_training_views()
 
     def _continue_run(self) -> None:
         loaded = self.engine.continue_session()
         if loaded:
+            if self.tensorboard is not None and self.engine.session_manager is not None:
+                self.tensorboard.set_log_dir(self.engine.session_manager.log_dir)
             self._clear_training_views()
 
     def _on_interval_changed(self, value: float) -> None:

@@ -21,7 +21,7 @@ from utils.session import TrainingSessionManager
 from utils.tensorboard import TensorBoardLauncher
 
 
-CORE_ALGORITHM = QAC
+CORE_ALGORITHM = sarsa_fa
 ALGORITHM_NAME = CORE_ALGORITHM.__name__
 STARTUP_MODE = "restart"  # "restart" 新训练；"continue" 读 checkpoint。
 ALGORITHM_CONFIG = RLAlgorithmConfig(
@@ -67,7 +67,7 @@ def main() -> int:
 
     env = GridWorld(
         r_boundary=-10.0,
-        r_forbidden=-10.0,
+        r_forbidden=-30.0,
         r_target=10,
         r_other=-5,
         forbidden_blocks=False,

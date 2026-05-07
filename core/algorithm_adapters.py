@@ -11,7 +11,7 @@ from typing import Any
 
 import numpy as np
 
-from core.env_base import Action, EnvBase, State
+from core.env_base import Action, EnvBase, State, StepResult
 from core.rl_parameters import (
     CoreAlgorithm,
     EpisodeAlgorithm,
@@ -150,9 +150,9 @@ def adapt_algorithm(book_algorithm: BookAlgorithm) -> AdaptedAlgorithm:
     if not callable(book_algorithm):
         raise TypeError(
             "CORE_ALGORITHM 必须指向核心算法函数名称，而不是模块对象。"
-        )
+    )
     if _matches_sarsa_fa_signature(book_algorithm):
-        return adapt_sarsa_fa(book_algorithm)
+        return adapt_sarsa_fa_episode(book_algorithm)
     if _matches_episode_env_signature(book_algorithm):
         return adapt_episode_env_algorithm(book_algorithm)
 
@@ -174,6 +174,7 @@ def adapt_sarsa_fa(book_algorithm: BookAlgorithm) -> AdaptedAlgorithm:
         ctx: RLAlgorithmContext,
         transition: RLTransition,
     ) -> RLStepResult:
+        _ensure_linear_action_value_weights(ctx)
         w_t = ctx.tables.w.copy()
         first_action_used = False
         sampled_next_action: Action | None = None
@@ -278,6 +279,93 @@ def adapt_sarsa_fa(book_algorithm: BookAlgorithm) -> AdaptedAlgorithm:
         mode="transition",
         display_function=book_algorithm,
         transition_runner=_inherit_book_metadata(core_algorithm, book_algorithm),
+    )
+
+
+def adapt_sarsa_fa_episode(book_algorithm: BookAlgorithm) -> AdaptedAlgorithm:
+    """Adapt Algorithm 8.2 as a book-style episode training function."""
+
+    parameter_names = tuple(inspect.signature(book_algorithm).parameters)
+
+    def episode_algorithm(
+        ctx: RLAlgorithmContext,
+        env: EnvBase,
+        start_step: int,
+        episode: int,
+        max_steps: int,
+    ) -> RLEpisodeResult:
+        _ensure_linear_action_value_weights(ctx)
+        tracker = _EpisodeTracker(
+            ctx=ctx,
+            env=env,
+            start_step=start_step,
+            episode=episode,
+            max_steps=max_steps,
+            tracked_names=("w",),
+        )
+        s0 = env.reset()
+
+        def pi(
+            state: State,
+            w: np.ndarray,
+            epsilon: float | None = None,
+        ) -> Action:
+            effective_epsilon = (
+                ctx.config.epsilon if epsilon is None else float(epsilon)
+            )
+            q_values = _q_values_from_w(ctx, state, w)
+            probs = make_policy_probs(
+                q_values,
+                ctx.config.behavior_policy,
+                effective_epsilon,
+                ctx.config.softmax_temperature,
+            )
+            return int(ctx.rng.choice(ctx.num_actions, p=probs))
+
+        def q_hat(state: State, action: Action, w: np.ndarray) -> float:
+            return float(np.dot(ctx.tables.features[state, action], w))
+
+        def grad_q_hat(state: State, action: Action, w: np.ndarray) -> np.ndarray:
+            _ = w
+            return ctx.tables.features[state, action].copy()
+
+        def step(state: State, action: Action) -> tuple[State, float, bool]:
+            next_state, reward, done, extra = env.transition(int(state), int(action))
+            transition = StepResult(
+                state=int(state),
+                action=int(action),
+                reward=float(reward),
+                next_state=int(next_state),
+                done=bool(done),
+                extra=dict(extra),
+            )
+            tracked_done = tracker.begin_transition(int(action), transition)
+            return int(next_state), float(reward), bool(tracked_done)
+
+        call_kwargs = _build_sarsa_fa_episode_kwargs(
+            ctx=ctx,
+            parameter_names=parameter_names,
+            max_steps=max_steps,
+        )
+        instrumented_function = _load_instrumented_episode_function(
+            book_algorithm,
+            tracker,
+        )
+        instrumented_function(
+            ctx.tables.w.copy(),
+            s0,
+            pi,
+            q_hat,
+            grad_q_hat,
+            step,
+            **call_kwargs,
+        )
+        return tracker.finish()
+
+    return AdaptedAlgorithm(
+        mode="episode",
+        display_function=book_algorithm,
+        episode_runner=_inherit_book_metadata(episode_algorithm, book_algorithm),
     )
 
 
@@ -728,6 +816,19 @@ def _build_supported_kwargs(
     return kwargs
 
 
+def _build_sarsa_fa_episode_kwargs(
+    ctx: RLAlgorithmContext,
+    parameter_names: tuple[str, ...],
+    max_steps: int,
+) -> dict[str, Any]:
+    kwargs = _build_supported_kwargs(ctx, parameter_names)
+    if "episodes" in parameter_names:
+        kwargs["episodes"] = 1
+    if "max_steps" in parameter_names:
+        kwargs["max_steps"] = max_steps
+    return kwargs
+
+
 def _build_episode_call_kwargs(
     ctx: RLAlgorithmContext,
     env_proxy: _EpisodeEnvProxy,
@@ -1092,6 +1193,32 @@ def _q_values_from_w(
         ],
         dtype=float,
     )
+
+
+def _ensure_linear_action_value_weights(ctx: RLAlgorithmContext) -> None:
+    """Keep Algorithm 8.2 on a linear action-value parameter vector."""
+
+    expected_dim = int(ctx.tables.features.shape[-1])
+    w = np.asarray(ctx.tables.w, dtype=float)
+    if w.ndim == 1 and w.shape[0] == expected_dim:
+        return
+
+    q_values = np.asarray(ctx.tables.q, dtype=float)
+    if q_values.shape != (ctx.num_states, ctx.num_actions):
+        q_values = np.zeros((ctx.num_states, ctx.num_actions), dtype=float)
+
+    linear_w = np.zeros(expected_dim, dtype=float)
+    for state in range(ctx.num_states):
+        for action in range(ctx.num_actions):
+            feature = ctx.tables.features[state, action]
+            active = np.flatnonzero(feature)
+            if active.size == 1 and np.isclose(feature[active[0]], 1.0):
+                linear_w[active[0]] = q_values[state, action]
+
+    ctx.config.value_function = "linear"
+    ctx.tables.w = linear_w
+    ctx.sync_q_from_w()
+    ctx.refresh_all_policies()
 
 
 def _inherit_book_metadata(wrapper, book_algorithm):
