@@ -18,13 +18,11 @@
 
 ## 运行视频
 
-> 这里预留代码运行视频位置，后续自行添加。
 
-<!--
-后续可以在这里放视频链接，例如：
 
-https://your-video-link
--->
+https://github.com/user-attachments/assets/ca15a692-b741-4f87-abd2-6ab0e1ff28e5
+
+
 
 ## 项目构建概览
 
