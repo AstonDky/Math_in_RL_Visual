@@ -38,7 +38,7 @@
 - TD control
 - Function approximation
 - Policy gradient / actor-critic
-- Native NumPy teaching versions of DQN and deterministic actor-critic
+- NumPy versions of DQN and deterministic actor-critic
 
 ## 运行视频
 
@@ -159,7 +159,7 @@ This workspace currently exposes 18 core algorithm entries across:
 - TD control
 - Function approximation
 - Policy gradient / actor-critic
-- Native NumPy teaching versions of DQN and deterministic actor-critic
+- NumPy versions of DQN and deterministic actor-critic
 
 ## Demo Video
 
