@@ -39,12 +39,13 @@
 
 ## 运行视频
 
-> 这里保留代码运行视频占位。
 
-<!--
-Video placeholder:
-https://your-video-link
--->
+
+
+https://github.com/user-attachments/assets/fc999b72-8a74-4f34-b75d-a07ffba51816
+
+
+
 
 ## 如何运行
 
@@ -159,12 +160,11 @@ This workspace currently exposes 18 core algorithm entries across:
 
 ## Demo Video
 
-> Placeholder for a future run video.
 
-<!--
-Video placeholder:
-https://your-video-link
--->
+
+https://github.com/user-attachments/assets/d823af37-37c2-47f4-bcd5-6993d6432635
+
+
 
 ## Run
 
