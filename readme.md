@@ -2,6 +2,9 @@
 
 > A native Python visual reinforcement-learning study framework for connecting math, code, policy change, value change, and training results in GridWorld.
 
+<img width="2310" height="1408" alt="image" src="https://github.com/user-attachments/assets/f8306e23-f409-4e4e-b01d-c2920917ef0e" />
+
+
 ## Language
 
 - [中文说明](#中文说明)
