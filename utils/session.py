@@ -79,6 +79,13 @@ class TrainingSessionManager:
         self.log_dir = self._new_run_log_dir()
         self.log_dir.mkdir(parents=True, exist_ok=True)
 
+    def clear_all_runs(self) -> None:
+        """Delete all runtime artifacts under the shared runs directory."""
+
+        self.last_cleanup_failures = []
+        self.runs_dir.mkdir(parents=True, exist_ok=True)
+        self._clear_directory_contents(self.runs_dir)
+
     def _clear_directory_contents(self, directory: Path) -> None:
         if not directory.exists():
             return

@@ -11,9 +11,44 @@ from pkgutil import iter_modules
 from pathlib import Path
 
 from .QAC import QAC
+from .a2c import a2c
+from .deep_q_learning import deep_q_learning
+from .deterministic_actor_critic import deterministic_actor_critic
+from .mc_basic import mc_basic
+from .mc_epsilon_greedy import mc_epsilon_greedy
+from .mc_exploring_starts import mc_exploring_starts
+from .off_policy_actor_critic import off_policy_actor_critic
+from .policy_iteration import policy_iteration
+from .q_learning_fa import q_learning_fa
+from .q_learning_off_policy import q_learning_off_policy
+from .q_learning_on_policy import q_learning_on_policy
+from .reinforce import reinforce
 from .sarsa_value_function import sarsa_fa
+from .sarsa_control import sarsa_control
+from .td_value_fa import td_value_fa
+from .truncated_policy_iteration import truncated_policy_iteration
+from .value_iteration import value_iteration
 
-__all__: list[str] = ["QAC", "sarsa_fa"]
+__all__: list[str] = [
+    "QAC",
+    "a2c",
+    "deep_q_learning",
+    "deterministic_actor_critic",
+    "mc_basic",
+    "mc_epsilon_greedy",
+    "mc_exploring_starts",
+    "off_policy_actor_critic",
+    "policy_iteration",
+    "q_learning_fa",
+    "q_learning_off_policy",
+    "q_learning_on_policy",
+    "reinforce",
+    "sarsa_control",
+    "sarsa_fa",
+    "td_value_fa",
+    "truncated_policy_iteration",
+    "value_iteration",
+]
 _PACKAGE_DIR = Path(__file__).resolve().parent
 
 

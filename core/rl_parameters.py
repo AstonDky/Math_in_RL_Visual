@@ -35,6 +35,9 @@ class RLAlgorithmConfig:
     iterations: int = 1
     n_steps: int = 1
     planning_steps: int = 0
+    batch_size: int = 32
+    target_update_interval: int = 10
+    hidden_units: int = 16
     max_steps: int = 200
     behavior_policy: PolicyKind = "epsilon_greedy"
     auto_refresh_policy: bool = True
@@ -229,6 +232,23 @@ class RLAlgorithmContext:
 
         names = updated_names or set()
 
+        if names.intersection(
+            {
+                "w1",
+                "b1",
+                "w2",
+                "b2",
+                "target_w1",
+                "target_b1",
+                "target_w2",
+                "target_b2",
+            }
+        ):
+            self._sync_q_from_network_extras()
+
+        if "v_w" in names:
+            self.tables.v = np.asarray(self.tables.extras["v_w"], dtype=float).copy()
+
         if self.config.value_function == "linear" and np.asarray(self.tables.w).ndim == 1:
             self.sync_q_from_w()
         elif np.asarray(self.tables.w).shape == (self.num_states, self.num_actions):
@@ -244,11 +264,11 @@ class RLAlgorithmContext:
                 self.tables.policy,
                 self.num_actions,
             )
-        elif not names.intersection({"v"}):
+        elif not names.intersection({"v", "v_w"}):
             self.refresh_all_policies()
             return
 
-        if "v" not in names or names.intersection({"q", "w", "theta", "policy"}):
+        if not names.intersection({"v", "v_w"}) or names.intersection({"q", "w", "theta", "policy"}):
             self.sync_state_values()
 
     def temperature(self) -> float:
@@ -281,6 +301,29 @@ class RLAlgorithmContext:
         for state in range(self.num_states):
             self.refresh_policy_state(state)
         self.sync_state_values()
+
+    def _sync_q_from_network_extras(self) -> None:
+        required = ("w1", "b1", "w2", "b2")
+        if not all(name in self.tables.extras for name in required):
+            return
+
+        w1 = np.asarray(self.tables.extras["w1"], dtype=float)
+        b1 = np.asarray(self.tables.extras["b1"], dtype=float)
+        w2 = np.asarray(self.tables.extras["w2"], dtype=float)
+        b2 = float(self.tables.extras["b2"])
+        input_dim = self.num_states + self.num_actions
+        if w1.shape != (input_dim, b1.shape[0]) or w2.shape != b1.shape:
+            return
+
+        q_values = np.zeros((self.num_states, self.num_actions), dtype=float)
+        for state in range(self.num_states):
+            for action in range(self.num_actions):
+                x = np.zeros(input_dim, dtype=float)
+                x[state] = 1.0
+                x[self.num_states + action] = 1.0
+                hidden = np.maximum(0.0, x @ w1 + b1)
+                q_values[state, action] = float(hidden @ w2 + b2)
+        self.tables.q = q_values
 
 
 CoreAlgorithm = Callable[[RLAlgorithmContext, RLTransition], RLStepResult]
@@ -517,6 +560,35 @@ def _build_initial_parameter_table(
 
 
 def _build_runtime_extra(name: str, ctx: RLAlgorithmContext) -> Any:
+    if name in {"returns", "Returns"}:
+        return np.zeros_like(ctx.tables.q)
+    if name in {"num", "Num", "counts"}:
+        return np.zeros_like(ctx.tables.q)
+    if name == "v_w":
+        return np.zeros(ctx.num_states, dtype=float)
+    if name == "target_w":
+        return np.asarray(ctx.tables.w, dtype=float).copy()
+    if name == "replay_buffer":
+        return []
+    if name in {"w1", "target_w1"}:
+        input_dim = ctx.num_states + ctx.num_actions
+        scale = 1.0 / max(1, input_dim) ** 0.5
+        return ctx.rng.normal(
+            loc=0.0,
+            scale=scale,
+            size=(input_dim, ctx.config.hidden_units),
+        ).astype(float)
+    if name in {"b1", "target_b1"}:
+        return np.zeros(ctx.config.hidden_units, dtype=float)
+    if name in {"w2", "target_w2"}:
+        scale = 1.0 / max(1, ctx.config.hidden_units) ** 0.5
+        return ctx.rng.normal(
+            loc=0.0,
+            scale=scale,
+            size=ctx.config.hidden_units,
+        ).astype(float)
+    if name in {"b2", "target_b2"}:
+        return 0.0
     if name.startswith("theta"):
         return np.zeros((ctx.num_states, ctx.num_actions), dtype=float)
     if name.startswith("w"):

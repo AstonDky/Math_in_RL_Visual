@@ -100,20 +100,19 @@ class TensorBoardLauncher:
 
     def stop(self) -> None:
         self._open_generation += 1
-        if self.process is not None and self.process.poll() is None:
-            self.process.terminate()
-            try:
-                self.process.wait(timeout=3)
-            except subprocess.TimeoutExpired:
-                self.process.kill()
-                self.process.wait(timeout=3)
-        self.process = None
-        if self._log_file is not None:
-            self._log_file.close()
-            self._log_file = None
-        if self._open_thread is not None and self._open_thread.is_alive():
-            self._open_thread.join(timeout=1.0)
-        self._open_thread = None
+        process = self.process
+        try:
+            if process is not None and process.poll() is None:
+                self._terminate_process(process)
+        finally:
+            self.process = None
+            self.port = None
+            self.url = None
+            self._server_url = None
+            self._close_log_file()
+            if self._open_thread is not None and self._open_thread.is_alive():
+                self._open_thread.join(timeout=1.0)
+            self._open_thread = None
 
     def is_running(self) -> bool:
         return self.process is not None and self.process.poll() is None
@@ -204,6 +203,41 @@ class TensorBoardLauncher:
             except OSError:
                 return False
         return False
+
+    def _terminate_process(self, process: subprocess.Popen) -> None:
+        if sys.platform.startswith("win"):
+            try:
+                subprocess.run(
+                    ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    stdin=subprocess.DEVNULL,
+                    timeout=5,
+                    check=False,
+                    creationflags=subprocess.CREATE_NO_WINDOW,
+                )
+            except (OSError, subprocess.TimeoutExpired):
+                process.kill()
+        else:
+            process.terminate()
+
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
+
+    def _close_log_file(self) -> None:
+        if self._log_file is None:
+            return
+        try:
+            self._log_file.flush()
+        except OSError:
+            pass
+        try:
+            self._log_file.close()
+        finally:
+            self._log_file = None
 
     def _choose_port(self, preferred_port: int) -> int:
         for port in range(preferred_port, preferred_port + 20):

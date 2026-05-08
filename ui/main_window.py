@@ -1,4 +1,4 @@
-"""应用主窗口。"""
+"""Main application window."""
 
 from __future__ import annotations
 
@@ -18,11 +18,12 @@ from core.engine import TrainingEngine
 from envs.grid_world import GridWorld
 from ui.grid_painter import GridPainter
 from ui.monitor_panel import MonitorPanel
+from utils.logger import TensorBoardLogger
 from utils.tensorboard import TensorBoardLauncher
 
 
 class MainWindow(QMainWindow):
-    """组合控制区、GridWorld 可视化区和监控区。"""
+    """Composes the controls, GridWorld view, and monitoring panels."""
 
     def __init__(
         self,
@@ -34,6 +35,13 @@ class MainWindow(QMainWindow):
         self.env = env
         self.engine = engine
         self.tensorboard = tensorboard
+        self._logger_settings = None
+        if engine.logger is not None:
+            self._logger_settings = {
+                "log_interval_steps": engine.logger.log_interval_steps,
+                "flush_interval_steps": engine.logger.flush_interval_steps,
+                "flush_interval_seconds": engine.logger.flush_interval_seconds,
+            }
 
         self.setWindowTitle("Math in RL Visual")
         self.resize(1320, 780)
@@ -77,9 +85,9 @@ class MainWindow(QMainWindow):
         self._connect_signals()
 
     def closeEvent(self, event) -> None:
-        self.engine.stop()
-        if self.tensorboard is not None:
-            self.tensorboard.stop()
+        self._stop_all()
+        if self.engine.session_manager is not None:
+            self.engine.session_manager.clear_all_runs()
         super().closeEvent(event)
 
     def _build_layout(self) -> None:
@@ -116,7 +124,7 @@ class MainWindow(QMainWindow):
     def _connect_signals(self) -> None:
         self.play_button.clicked.connect(self._start_or_resume)
         self.pause_button.clicked.connect(self.engine.pause)
-        self.stop_button.clicked.connect(self.engine.stop)
+        self.stop_button.clicked.connect(self._stop_all)
         self.restart_button.clicked.connect(self._restart_run)
         self.continue_button.clicked.connect(self._continue_run)
         self.interval_input.valueChanged.connect(self._on_interval_changed)
@@ -126,24 +134,27 @@ class MainWindow(QMainWindow):
         self.engine.episode_finished.connect(self._on_episode_finished)
 
     def _start_or_resume(self) -> None:
+        if self.engine.isRunning():
+            if self.tensorboard is not None:
+                self.tensorboard.start()
+            self.engine.resume()
+            return
+
+        self._prepare_fresh_run(open_tensorboard=False)
         if self.tensorboard is not None:
             self.tensorboard.start()
         if not self.engine.isRunning():
             self.engine.start()
-        else:
-            self.engine.resume()
+
+    def _stop_all(self) -> None:
+        self.engine.stop()
+        self.engine.set_logger(None)
+        if self.tensorboard is not None:
+            self.tensorboard.stop()
+        self.statusBar().showMessage("stopped")
 
     def _restart_run(self) -> None:
-        reopen_tensorboard = False
-        if self.tensorboard is not None:
-            reopen_tensorboard = self.tensorboard.is_running()
-            self.tensorboard.stop()
-        self.engine.restart_session()
-        if self.tensorboard is not None and self.engine.session_manager is not None:
-            self.tensorboard.set_log_dir(self.engine.session_manager.log_dir)
-            if reopen_tensorboard:
-                self.tensorboard.start()
-        self._clear_training_views()
+        self._prepare_fresh_run(open_tensorboard=None)
 
     def _continue_run(self) -> None:
         loaded = self.engine.continue_session()
@@ -173,6 +184,30 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(
             f"episode {episode} finished, reward={reward:.2f}"
         )
+
+    def _prepare_fresh_run(self, open_tensorboard: bool | None) -> None:
+        reopen_tensorboard = False
+        if self.tensorboard is not None:
+            reopen_tensorboard = self.tensorboard.is_running()
+            self.tensorboard.stop()
+
+        self.engine.start_fresh_session()
+
+        if self.engine.logger is None and self.engine.session_manager is not None:
+            logger_settings = self._logger_settings or {}
+            self.engine.set_logger(
+                TensorBoardLogger(
+                    log_dir=self.engine.session_manager.log_dir,
+                    **logger_settings,
+                )
+            )
+        if self.tensorboard is not None and self.engine.session_manager is not None:
+            self.tensorboard.set_log_dir(self.engine.session_manager.log_dir)
+            should_open = reopen_tensorboard if open_tensorboard is None else open_tensorboard
+            if should_open:
+                self.tensorboard.start()
+
+        self._clear_training_views()
 
     def _clear_training_views(self) -> None:
         state = self.env.reset()

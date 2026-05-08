@@ -1,7 +1,4 @@
-"""训练调度引擎。
-
-训练循环运行在 QThread 中，通过 signal 把标准 Info Dict 发回界面。
-"""
+"""Training engine running the agent loop inside a QThread."""
 
 from __future__ import annotations
 
@@ -16,7 +13,7 @@ from utils.session import TrainingSessionManager
 
 
 class TrainingEngine(QThread):
-    """异步训练循环。"""
+    """Asynchronous training loop with pause, resume, and checkpoint support."""
 
     info_ready = pyqtSignal(dict)
     episode_finished = pyqtSignal(int, float)
@@ -51,7 +48,7 @@ class TrainingEngine(QThread):
         self._episode = 0
 
     def run(self) -> None:
-        """QThread 入口。"""
+        """QThread entry point."""
 
         self._running = True
         self._paused = False
@@ -168,36 +165,27 @@ class TrainingEngine(QThread):
     def stop(self) -> None:
         with QMutexLocker(self._mutex):
             self._running = False
-        self.wait(1000)
+        self.wait(5000)
         self.save_checkpoint()
-
-    def restart_session(self) -> None:
-        """重新开始当前算法的训练会话。"""
-
-        if self.isRunning():
-            self.stop()
-        logger_template = self.logger
         if self.logger is not None:
             self.logger.close()
             self.logger = None
-        if self.session_manager is not None:
-            step, episode = self.session_manager.reset_run(self.agent)
-            self.set_progress(step, episode)
-            if logger_template is not None:
-                self.logger = logger_template.clone_for_log_dir(
-                    self.session_manager.log_dir
-                )
-            else:
-                self.logger = TensorBoardLogger(log_dir=self.session_manager.log_dir)
-        else:
-            self.agent.reset_training_state()
-            self.set_progress(0, 0)
-        self.env.reset()
-        gc.collect()
+        self.status_changed.emit("stopped")
+
+    def restart_session(self) -> None:
+        """Reset the current algorithm session and keep the engine idle."""
+
+        self._reset_current_session()
         self.status_changed.emit("restarted")
 
+    def start_fresh_session(self) -> None:
+        """Prepare a brand-new run for the current algorithm."""
+
+        self._reset_current_session()
+        self.status_changed.emit("fresh run ready")
+
     def continue_session(self) -> bool:
-        """从 checkpoint 恢复训练会话。"""
+        """Load a checkpointed session for the current algorithm."""
 
         if self.isRunning():
             self.stop()
@@ -242,6 +230,28 @@ class TrainingEngine(QThread):
         with QMutexLocker(self._mutex):
             self.delay_ms = delay_ms
 
+    def _reset_current_session(self) -> None:
+        logger_template = self.logger
+        if self.isRunning():
+            self.stop()
+        if self.logger is not None:
+            self.logger.close()
+            self.logger = None
+        if self.session_manager is not None:
+            step, episode = self.session_manager.reset_run(self.agent)
+            self.set_progress(step, episode)
+            if logger_template is not None:
+                self.logger = logger_template.clone_for_log_dir(
+                    self.session_manager.log_dir
+                )
+            else:
+                self.logger = TensorBoardLogger(log_dir=self.session_manager.log_dir)
+        else:
+            self.agent.reset_training_state()
+            self.set_progress(0, 0)
+        self.env.reset()
+        gc.collect()
+
     def _is_running(self) -> bool:
         with QMutexLocker(self._mutex):
             return self._running
@@ -255,7 +265,7 @@ class TrainingEngine(QThread):
             return self.delay_ms
 
     def _sleep_delay(self, delay_ms: float) -> None:
-        """按毫秒或亚毫秒训练间隔等待。"""
+        """Sleep using millisecond or microsecond resolution."""
 
         if delay_ms <= 0.0:
             return
@@ -265,14 +275,14 @@ class TrainingEngine(QThread):
             self.msleep(int(delay_ms))
 
     def _should_emit_info(self, delay_ms: float) -> bool:
-        """高速训练时降低界面刷新频率。"""
+        """Throttle UI updates during high-speed training."""
 
         if delay_ms >= 1.0:
             return True
         return self._step % self.fast_ui_interval_steps == 0
 
     def _emit_trace_sequence(self, info: InfoDict) -> None:
-        """把一次更新展开成算法指针的逐行展示事件。"""
+        """Expand one update into staged code-pointer display events."""
 
         trace = info.get("algorithm_trace")
         delay_ms = self._delay_ms()
