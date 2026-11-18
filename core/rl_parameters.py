@@ -163,6 +163,7 @@ class RLAlgorithmContext:
     config: RLAlgorithmConfig
     tables: RLTables
     rng: np.random.Generator
+    runtime_state_names: frozenset[str] = frozenset()
 
     def sample_action(self, state: State) -> Action:
         probs = self.tables.policy[state].astype(float, copy=True)
@@ -231,6 +232,8 @@ class RLAlgorithmContext:
         """根据当前运行时状态重建 Q、policy 和 V。"""
 
         names = updated_names or set()
+        sources = self.runtime_state_names or names
+        direct_value = bool(sources.intersection({"v", "v_w"}))
 
         if names.intersection(
             {
@@ -246,29 +249,34 @@ class RLAlgorithmContext:
         ):
             self._sync_q_from_network_extras()
 
-        if "v_w" in names:
+        if "v_w" in sources and "v_w" in self.tables.extras:
             self.tables.v = np.asarray(self.tables.extras["v_w"], dtype=float).copy()
 
-        if self.config.value_function == "linear" and np.asarray(self.tables.w).ndim == 1:
-            self.sync_q_from_w()
-        elif np.asarray(self.tables.w).shape == (self.num_states, self.num_actions):
-            self.tables.q = np.asarray(self.tables.w, dtype=float).copy()
+        # Only algorithms that own w derive Q from it. Other algorithms update
+        # Q, V, or network parameters directly; their unused w must not win.
+        if "w" in sources:
+            if self.config.value_function == "linear" and np.asarray(self.tables.w).ndim == 1:
+                self.tables.q = np.tensordot(
+                    self.tables.features, self.tables.w, axes=([2], [0])
+                )
+            elif np.asarray(self.tables.w).shape == (self.num_states, self.num_actions):
+                self.tables.q = np.asarray(self.tables.w, dtype=float).copy()
 
-        if "theta" in names:
+        if "theta" in sources:
             self.tables.policy = policy_from_preferences(
                 self.tables.theta,
                 temperature=self.temperature(),
             )
-        elif "policy" in names:
+        elif "policy" in sources:
             self.tables.policy = normalize_policy_table(
                 self.tables.policy,
                 self.num_actions,
             )
-        elif not names.intersection({"v", "v_w"}):
+        elif not direct_value:
             self.refresh_all_policies()
             return
 
-        if not names.intersection({"v", "v_w"}) or names.intersection({"q", "w", "theta", "policy"}):
+        if not direct_value:
             self.sync_state_values()
 
     def temperature(self) -> float:
@@ -570,7 +578,9 @@ def _build_runtime_extra(name: str, ctx: RLAlgorithmContext) -> Any:
         return np.asarray(ctx.tables.w, dtype=float).copy()
     if name == "replay_buffer":
         return []
-    if name in {"w1", "target_w1"}:
+    if name in {"target_w1", "target_b1", "target_w2", "target_b2"}:
+        return ctx.get_runtime_state(name.removeprefix("target_"))
+    if name == "w1":
         input_dim = ctx.num_states + ctx.num_actions
         scale = 1.0 / max(1, input_dim) ** 0.5
         return ctx.rng.normal(
@@ -578,17 +588,19 @@ def _build_runtime_extra(name: str, ctx: RLAlgorithmContext) -> Any:
             scale=scale,
             size=(input_dim, ctx.config.hidden_units),
         ).astype(float)
-    if name in {"b1", "target_b1"}:
+    if name == "b1":
         return np.zeros(ctx.config.hidden_units, dtype=float)
-    if name in {"w2", "target_w2"}:
+    if name == "w2":
         scale = 1.0 / max(1, ctx.config.hidden_units) ** 0.5
         return ctx.rng.normal(
             loc=0.0,
             scale=scale,
             size=ctx.config.hidden_units,
         ).astype(float)
-    if name in {"b2", "target_b2"}:
+    if name == "b2":
         return 0.0
+    if name == "iteration_offset":
+        return 0
     if name.startswith("theta"):
         return np.zeros((ctx.num_states, ctx.num_actions), dtype=float)
     if name.startswith("w"):

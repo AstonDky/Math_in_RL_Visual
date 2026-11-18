@@ -11,6 +11,7 @@ from PyQt6.QtGui import QColor, QPainter, QPen
 from PyQt6.QtWidgets import QWidget
 
 from envs.grid_world import CellType, GridAction
+from ui.theme import THEMES, Theme
 
 
 class PolicyPainter(QWidget):
@@ -23,7 +24,12 @@ class PolicyPainter(QWidget):
         self.policy_probs: NDArray[np.float64] | None = None
         self.current_state: int | None = None
         self.updated_state: int | None = None
-        self.setMinimumSize(260, 260)
+        self.theme = THEMES["light"]
+        self.setMinimumSize(140, 120)
+
+    def set_theme(self, theme: Theme) -> None:
+        self.theme = theme
+        self.update()
 
     def update_policy(
         self,
@@ -46,9 +52,9 @@ class PolicyPainter(QWidget):
         _ = event
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.fillRect(self.rect(), QColor("#ffffff"))
+        painter.fillRect(self.rect(), QColor(self.theme.surface))
 
-        cell_size = min(self.width() / self.cols, self.height() / self.rows)
+        cell_size = min((self.width() - 2) / self.cols, (self.height() - 2) / self.rows)
         board_width = cell_size * self.cols
         board_height = cell_size * self.rows
         offset_x = (self.width() - board_width) / 2
@@ -82,15 +88,15 @@ class PolicyPainter(QWidget):
         cell_type = CellType(int(self.layout[row, col]))
         match cell_type:
             case CellType.FORBIDDEN:
-                color = QColor("#ffe08a")
+                color = QColor(self.theme.forbidden)
             case CellType.TARGET:
-                color = QColor("#9af3ee")
+                color = QColor(self.theme.target)
             case _:
-                color = QColor("#ffffff")
+                color = QColor(self.theme.surface)
 
         painter.fillRect(rect, color)
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.setPen(QPen(QColor("#333333"), 1))
+        painter.setPen(QPen(QColor(self.theme.grid), 1))
         painter.drawRect(rect)
 
     def _draw_policy_glyph(
@@ -111,7 +117,7 @@ class PolicyPainter(QWidget):
         unit_length = cell_size * 0.36
         directions = self._action_vectors()
 
-        prob_pen = QPen(QColor("#4b7f23"), max(1.4, cell_size * 0.024))
+        prob_pen = QPen(QColor(self.theme.text), max(1.4, cell_size * 0.024))
         prob_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         painter.setPen(prob_pen)
         for action_index, probability in enumerate(probabilities):
@@ -134,7 +140,7 @@ class PolicyPainter(QWidget):
             )
 
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor("#4b7f23"))
+        painter.setBrush(QColor(self.theme.text))
         center_radius = max(1.6, cell_size * 0.025)
         painter.drawEllipse(center, center_radius, center_radius)
 
@@ -211,10 +217,10 @@ class PolicyPainter(QWidget):
 
     def _draw_current_outline(self, painter: QPainter, rect: QRectF) -> None:
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.setPen(QPen(QColor("#c62828"), 2))
+        painter.setPen(QPen(QColor(self.theme.accent), 2))
         painter.drawRect(rect.adjusted(4, 4, -4, -4))
 
     def _draw_updated_outline(self, painter: QPainter, rect: QRectF) -> None:
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.setPen(QPen(QColor("#7b1fa2"), 2))
+        painter.setPen(QPen(QColor(self.theme.updated), 2))
         painter.drawRect(rect.adjusted(1, 1, -1, -1))

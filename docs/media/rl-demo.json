@@ -1,0 +1,87 @@
+{
+  "capture": "Actual Qt widgets and live TrainingEngine; scripted UI actions",
+  "frames": 640,
+  "fps": 20,
+  "duration_seconds": 32,
+  "algorithm": "q_learning_off_policy",
+  "seed": 7,
+  "final_progress": [
+    342,
+    9
+  ],
+  "events": [
+    {
+      "video_seconds": 1.0,
+      "caption": "Train  |  Inspect values, action probabilities and source code",
+      "progress": [
+        0,
+        0
+      ]
+    },
+    {
+      "video_seconds": 9.0,
+      "caption": "Pause  |  Inspect the current update",
+      "progress": [
+        60,
+        1
+      ]
+    },
+    {
+      "video_seconds": 11.0,
+      "caption": "Preferences  |  Theme, text size, pacing and TensorBoard",
+      "progress": [
+        99,
+        2
+      ]
+    },
+    {
+      "video_seconds": 14.0,
+      "caption": "Apply  |  Display preferences are saved",
+      "progress": [
+        99,
+        2
+      ]
+    },
+    {
+      "video_seconds": 17.0,
+      "caption": "Resume  |  Continue the same training session",
+      "progress": [
+        99,
+        2
+      ]
+    },
+    {
+      "video_seconds": 25.0,
+      "caption": "Stop  |  Save the current training checkpoint",
+      "progress": [
+        277,
+        7
+      ]
+    },
+    {
+      "video_seconds": 26.0,
+      "caption": "Restore  |  Load the saved parameters and progress",
+      "progress": [
+        277,
+        7
+      ]
+    },
+    {
+      "video_seconds": 27.0,
+      "caption": "Continue  |  Train from the restored checkpoint",
+      "progress": [
+        277,
+        7
+      ]
+    },
+    {
+      "video_seconds": 30.0,
+      "caption": "Math in RL Visual  |  Open-source learning workspace",
+      "progress": [
+        342,
+        9
+      ]
+    }
+  ],
+  "note": "Short demonstration; not a convergence or performance benchmark. User data and preferences are untouched."
+}

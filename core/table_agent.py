@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import inspect
 from typing import Any
 
 import numpy as np
@@ -37,6 +38,9 @@ class TableAgent(AgentBase):
         super().__init__(num_states=num_states, num_actions=num_actions)
         self.reward_map = reward_map
         self.algorithm = algorithm
+        self._runtime_state_names = frozenset(
+            inspect.signature(algorithm.display_function).parameters
+        )
         self._initial_config = copy.deepcopy(config)
         self.config = copy.deepcopy(config)
         self.algorithm_name = algorithm_name
@@ -62,6 +66,7 @@ class TableAgent(AgentBase):
             config=self.config,
             tables=self.tables,
             rng=self._rng,
+            runtime_state_names=self._runtime_state_names,
         )
         if self.config.initial_policy is None:
             self.context.refresh_all_policies()
@@ -192,6 +197,7 @@ class TableAgent(AgentBase):
             config=self.config,
             tables=self.tables,
             rng=self._rng,
+            runtime_state_names=self._runtime_state_names,
         )
         if self.config.initial_policy is None:
             self.context.refresh_all_policies()
@@ -240,8 +246,8 @@ class TableAgent(AgentBase):
             config=self.config,
             tables=self.tables,
             rng=self._rng,
+            runtime_state_names=self._runtime_state_names,
         )
-        self.context.sync_q_from_w()
-        self.context.sync_state_values()
+        self.context.rebuild_visual_state(set(state) | set(self.tables.extras))
         self._next_action = None
         self._next_action_state = None

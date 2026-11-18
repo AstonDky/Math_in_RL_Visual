@@ -9,6 +9,7 @@ from PyQt6.QtGui import QColor, QFont, QPainter, QPen
 from PyQt6.QtWidgets import QWidget
 
 from envs.grid_world import CellType
+from ui.theme import THEMES, Theme
 
 
 class GridPainter(QWidget):
@@ -20,7 +21,12 @@ class GridPainter(QWidget):
         self.rows, self.cols = layout.shape
         self.current_state = 0
         self.reward_map: NDArray[np.float64] | None = None
-        self.setMinimumSize(420, 420)
+        self.theme = THEMES["light"]
+        self.setMinimumSize(240, 240)
+
+    def set_theme(self, theme: Theme) -> None:
+        self.theme = theme
+        self.update()
 
     def set_reward_map(self, reward_map: NDArray[np.float64]) -> None:
         self.reward_map = reward_map
@@ -39,7 +45,7 @@ class GridPainter(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        cell_size = min(self.width() / self.cols, self.height() / self.rows)
+        cell_size = min((self.width() - 2) / self.cols, (self.height() - 2) / self.rows)
         board_width = cell_size * self.cols
         board_height = cell_size * self.rows
         offset_x = (self.width() - board_width) / 2
@@ -71,14 +77,14 @@ class GridPainter(QWidget):
         cell_type = CellType(int(self.layout[row, col]))
         match cell_type:
             case CellType.FORBIDDEN:
-                color = QColor("#ffe08a")
+                color = QColor(self.theme.forbidden)
             case CellType.TARGET:
-                color = QColor("#85d99e")
+                color = QColor(self.theme.target)
             case _:
-                color = QColor("#ffffff")
+                color = QColor(self.theme.surface)
 
         painter.fillRect(rect, color)
-        painter.setPen(QPen(QColor("#333333"), 1.2))
+        painter.setPen(QPen(QColor(self.theme.grid), 1))
         painter.drawRect(rect)
 
     def _draw_reward(self, painter: QPainter, rect: QRectF, state: int) -> None:
@@ -87,16 +93,16 @@ class GridPainter(QWidget):
 
         reward = float(self.reward_map[state])
         text = f"{reward:g}"
-        font = QFont()
-        font.setPointSize(max(11, int(rect.width() * 0.16)))
+        font = QFont(self.font())
+        font.setPointSize(max(10, min(22, int(rect.width() * 0.16))))
         font.setBold(True)
         painter.setFont(font)
-        painter.setPen(QColor("#24292f"))
+        painter.setPen(QColor(self.theme.text))
         painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, text)
 
     def _draw_current_state(self, painter: QPainter, rect: QRectF) -> None:
         """用边框标记当前状态。"""
 
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.setPen(QPen(QColor("#c62828"), 3))
+        painter.setPen(QPen(QColor(self.theme.accent), 3))
         painter.drawRect(rect.adjusted(3, 3, -3, -3))

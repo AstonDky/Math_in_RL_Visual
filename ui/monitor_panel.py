@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import numpy as np
 from numpy.typing import NDArray
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
-    QTextEdit,
+    QPlainTextEdit,
+    QSplitter,
     QVBoxLayout,
     QWidget,
 )
@@ -16,6 +19,7 @@ from PyQt6.QtWidgets import (
 from ui.algorithm_pointer import AlgorithmPointer
 from ui.policy_painter import PolicyPainter
 from ui.reward_grid import RewardGrid
+from ui.theme import Theme
 
 
 class MonitorPanel(QWidget):
@@ -24,52 +28,73 @@ class MonitorPanel(QWidget):
     def __init__(self, layout: NDArray, parent=None) -> None:
         super().__init__(parent)
 
-        self.formula_label = QLabel("-")
+        self.formula_label = QLabel("开始训练后显示本次更新的公式")
         self.formula_label.setWordWrap(True)
         self.calculation_label = QLabel("-")
         self.calculation_label.setWordWrap(True)
+        self.calculation_label.setObjectName("muted")
 
-        self.variables_view = QTextEdit()
+        self.variables_view = QPlainTextEdit()
         self.variables_view.setReadOnly(True)
-        self.variables_view.setMinimumHeight(120)
+        self.variables_view.setMinimumHeight(50)
+        self.variables_view.setAccessibleName("当前公式的数学变量")
 
         self.reward_grid = RewardGrid(layout=layout)
         self.policy_painter = PolicyPainter(layout=layout)
         self.algorithm_pointer = AlgorithmPointer()
 
-        formula_box = QGroupBox("TD 公式计算")
+        formula_box = QGroupBox("公式与变量")
         formula_layout = QVBoxLayout(formula_box)
         formula_layout.addWidget(self.formula_label)
         formula_layout.addWidget(self.calculation_label)
         formula_layout.addWidget(self.variables_view)
 
-        reward_box = QGroupBox("当前策略 state value V^π(s) 网格")
+        reward_box = QGroupBox("状态价值 Vπ(s)")
         reward_layout = QVBoxLayout(reward_box)
         reward_layout.addWidget(self.reward_grid)
 
-        policy_box = QGroupBox("策略概率十字图")
+        policy_box = QGroupBox("策略概率 π(a|s)")
+        policy_box.setToolTip("箭头方向对应动作，长度与动作概率成正比；圆环表示停留动作。")
         policy_layout = QVBoxLayout(policy_box)
         policy_layout.addWidget(self.policy_painter)
 
         top = QHBoxLayout()
-        top.addWidget(formula_box, stretch=3)
         top.addWidget(reward_box, stretch=2)
         top.addWidget(policy_box, stretch=2)
+        top.setContentsMargins(0, 0, 0, 0)
+        top.setSpacing(12)
+        plots = QWidget()
+        plots.setLayout(top)
+        plots.setMinimumHeight(205)
 
-        tensorboard_box = QGroupBox("TensorBoard")
+        tensorboard_box = QGroupBox("TensorBoard 日志")
         tensorboard_layout = QVBoxLayout(tensorboard_box)
         self.tensorboard_note = QLabel(
-            "训练指标已拆分写入 runs/<algorithm_name>：\n"
-            "rollout/reward, train/loss, train/td_error, train/q_value"
+            "开始训练后记录 reward、loss、td_error 与 q_value"
         )
         self.tensorboard_note.setWordWrap(True)
+        self.tensorboard_note.setObjectName("muted")
         tensorboard_layout.addWidget(self.tensorboard_note)
 
+        self.inspector_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.inspector_splitter.setChildrenCollapsible(False)
+        self.inspector_splitter.setHandleWidth(8)
+        self.inspector_splitter.addWidget(plots)
+        self.inspector_splitter.addWidget(formula_box)
+        self.inspector_splitter.addWidget(self.algorithm_pointer)
+        self.inspector_splitter.setSizes([280, 190, 260])
         layout = QVBoxLayout(self)
-        layout.addLayout(top)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(7)
+        layout.addWidget(self.inspector_splitter, 1)
         layout.addWidget(tensorboard_box)
-        layout.addWidget(self.algorithm_pointer)
-        layout.addStretch()
+
+    def set_theme(self, theme: Theme, font_size: int) -> None:
+        self.reward_grid.set_theme(theme)
+        self.policy_painter.set_theme(theme)
+        self.algorithm_pointer.set_theme(theme)
+        self.algorithm_pointer.set_code_font(font_size)
+        self.variables_view.setFont(QFont("Consolas", font_size))
 
     def update_info(self, info: dict) -> None:
         math_log = info.get("math_log", {})
@@ -103,16 +128,13 @@ class MonitorPanel(QWidget):
         algorithm_name = info.get("algorithm_name")
         if algorithm_name:
             self.tensorboard_note.setText(
-                f"训练指标已拆分写入 runs/{algorithm_name}：\n"
-                "rollout/reward, rollout/episode_reward, "
-                "rollout/episode_length, train/loss, "
-                "train/td_error, train/q_value"
+                f"runs/{algorithm_name} · reward / loss / td_error / q_value"
             )
             cadence = getattr(self, "_tensorboard_cadence", "")
-            if cadence:
-                self.tensorboard_note.setText(
-                    f"{self.tensorboard_note.text()}\n{cadence}"
-                )
+            self.tensorboard_note.setToolTip(
+                "rollout/reward, rollout/episode_reward, rollout/episode_length, "
+                f"train/loss, train/td_error, train/q_value\n{cadence}"
+            )
 
     def set_tensorboard_cadence(
         self,
@@ -128,10 +150,10 @@ class MonitorPanel(QWidget):
             f"{flush_interval_seconds:g}s flush；"
             f"页面约每 {reload_interval_seconds:g}s reload。"
         )
-        self.tensorboard_note.setText(self._tensorboard_cadence)
+        self.tensorboard_note.setToolTip(self._tensorboard_cadence)
 
     def clear(self) -> None:
-        self.formula_label.setText("-")
+        self.formula_label.setText("开始训练后显示本次更新的公式")
         self.calculation_label.setText("-")
         self.variables_view.clear()
         self.reward_grid.clear()

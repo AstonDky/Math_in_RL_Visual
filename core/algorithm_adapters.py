@@ -65,6 +65,7 @@ _KNOWN_RUNTIME_STATE_NAMES = {
     "target_b1",
     "target_w2",
     "target_b2",
+    "iteration_offset",
 }
 _HELPER_PARAM_NAMES = {
     "actions",

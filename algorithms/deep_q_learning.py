@@ -41,6 +41,7 @@ def deep_q_learning(
     target_update_interval=10,
     iterations=1,
     max_steps=100,
+    iteration_offset=0,
 ):
     for iteration in range(iterations):
         s = env.reset()
@@ -80,7 +81,8 @@ def deep_q_learning(
             w1 = w1 + alpha * np.outer(x, hidden_delta)
             b1 = b1 + alpha * hidden_delta
 
-        if (iteration + 1) % target_update_interval == 0:
+        iteration_offset += 1
+        if iteration_offset % target_update_interval == 0:
             target_w1 = w1.copy()
             target_b1 = b1.copy()
             target_w2 = w2.copy()

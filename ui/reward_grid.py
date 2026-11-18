@@ -9,6 +9,7 @@ from PyQt6.QtGui import QColor, QFont, QPainter, QPen
 from PyQt6.QtWidgets import QWidget
 
 from envs.grid_world import CellType
+from ui.theme import THEMES, Theme
 
 
 class RewardGrid(QWidget):
@@ -20,7 +21,12 @@ class RewardGrid(QWidget):
         self.rows, self.cols = layout.shape
         self.value_map: NDArray[np.float64] | None = None
         self.highlight_state: int | None = None
-        self.setMinimumSize(220, 220)
+        self.theme = THEMES["light"]
+        self.setMinimumSize(140, 120)
+
+    def set_theme(self, theme: Theme) -> None:
+        self.theme = theme
+        self.update()
 
     def update_values(
         self,
@@ -40,16 +46,16 @@ class RewardGrid(QWidget):
         _ = event
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.fillRect(self.rect(), QColor("#ffffff"))
+        painter.fillRect(self.rect(), QColor(self.theme.surface))
 
-        cell_size = min(self.width() / self.cols, self.height() / self.rows)
+        cell_size = min((self.width() - 2) / self.cols, (self.height() - 2) / self.rows)
         board_width = cell_size * self.cols
         board_height = cell_size * self.rows
         offset_x = (self.width() - board_width) / 2
         offset_y = (self.height() - board_height) / 2
 
-        font = QFont()
-        font.setPointSize(max(8, int(cell_size * 0.16)))
+        font = QFont(self.font())
+        font.setPointSize(max(8, min(12, int(cell_size * 0.16))))
         painter.setFont(font)
 
         for row in range(self.rows):
@@ -75,25 +81,25 @@ class RewardGrid(QWidget):
     ) -> None:
         cell_type = CellType(int(self.layout[row, col]))
         if cell_type == CellType.FORBIDDEN:
-            color = QColor("#fff3bf")
+            color = QColor(self.theme.forbidden)
         elif cell_type == CellType.TARGET:
-            color = QColor("#c3f1cf")
+            color = QColor(self.theme.target)
         else:
-            color = QColor("#ffffff")
+            color = QColor(self.theme.surface)
 
         painter.fillRect(rect, color)
-        painter.setPen(QPen(QColor("#444444"), 1))
+        painter.setPen(QPen(QColor(self.theme.grid), 1))
         painter.drawRect(rect)
 
         if state == self.highlight_state:
-            painter.setPen(QPen(QColor("#c62828"), 3))
+            painter.setPen(QPen(QColor(self.theme.accent), 2))
             painter.drawRect(rect.adjusted(2, 2, -2, -2))
 
         if cell_type == CellType.TARGET:
-            text = "V=0.00"
+            text = "0.00"
         elif self.value_map is None:
-            text = "V=?"
+            text = "?"
         else:
-            text = f"V={self.value_map[state]:.2f}"
-        painter.setPen(QColor("#24292f"))
+            text = f"{self.value_map[state]:.2f}"
+        painter.setPen(QColor(self.theme.text))
         painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, text)

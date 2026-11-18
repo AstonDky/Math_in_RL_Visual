@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use this software, cite it with the commit used for your work."
+type: software
+title: "Math in RL Visual"
+authors:
+  - family-names: Dong
+    given-names: Keyan
+repository-code: "https://github.com/AstonDky/Math_in_RL_Visual"
+url: "https://github.com/AstonDky/Math_in_RL_Visual"
+license: MIT
+version: 0.1.0
+date-released: 2026-11-19
+abstract: "A NumPy and PyQt6 learning tool for visualizing reinforcement learning algorithms in GridWorld."
+keywords:
+  - reinforcement learning
+  - GridWorld
+  - visualization
+  - education
